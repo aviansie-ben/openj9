@@ -11680,6 +11680,40 @@ J9::X86::TreeEvaluator::directCallEvaluator(TR::Node *node, TR::CodeGenerator *c
    TR::Compilation *comp = cg->comp();
    TR::SymbolReference *symRef = node->getSymbolReference();
 
+   if (symRef->getReferenceNumber() == TR_jProfileSnippetVFT)
+      {
+      TR::RegisterDependencyConditions *deps = generateRegisterDependencyConditions(2, 3, cg);
+
+      TR::Register *value = cg->evaluate(node->getFirstChild());
+      TR::Register *tableAddress = cg->gprClobberEvaluate(node->getSecondChild(), MOVRegReg(TR::Compiler->target.is64Bit()));
+
+      deps->addPreCondition(value, TR::RealRegister::eax, cg);
+      deps->addPreCondition(tableAddress, TR::RealRegister::r12, cg);
+
+      TR::Register *clobber1 = cg->allocateRegister();
+      TR::Register *clobber2 = cg->allocateRegister();
+      TR::Register *clobber3 = cg->allocateRegister();
+
+      deps->addPostCondition(clobber1, TR::RealRegister::r13, cg);
+      deps->addPostCondition(clobber2, TR::RealRegister::r14, cg);
+      deps->addPostCondition(clobber3, TR::RealRegister::r15, cg);
+
+      deps->stopAddingConditions();
+
+      new (cg->trHeapMemory()) TR::X86PaddingInstruction(5, node, TR_AtomicNoOpPadding, deps, cg);
+
+      cg->decReferenceCount(node->getFirstChild());
+      cg->decReferenceCount(node->getSecondChild());
+
+      cg->stopUsingRegister(clobber1);
+      cg->stopUsingRegister(clobber2);
+      cg->stopUsingRegister(clobber3);
+      cg->stopUsingRegister(value);
+      cg->stopUsingRegister(tableAddress);
+
+      return NULL;
+      }
+
    bool callInlined = false;
    TR::Register *returnRegister = NULL;
    TR::MethodSymbol *symbol = node->getSymbol()->castToMethodSymbol();

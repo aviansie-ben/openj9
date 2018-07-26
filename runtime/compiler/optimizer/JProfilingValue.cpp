@@ -164,7 +164,9 @@ loadConst(TR::DataType dt)
 int32_t
 TR_JProfilingValue::perform() 
    {
-   if (comp()->getProfilingMode() == JProfiling)
+   if (comp()->getOption(TR_EnableSplitPostGRA))
+      {}
+   else if (comp()->getProfilingMode() == JProfiling)
       {
       if (trace())
          traceMsg(comp(), "JProfiling has been enabled for profiling compilations, run JProfilingValue\n");
@@ -250,11 +252,11 @@ TR_JProfilingValue::performOnNode(TR::Node *node, TR::TreeTop *tt, TR::NodeCheck
       return;
    checklist->add(node);
 
-   if (node->getOpCode().isCall() && !node->getByteCodeInfo().doNotProfile() &&
+   /*if (node->getOpCode().isCall() && !node->getByteCodeInfo().doNotProfile() &&
        (node->getSymbol()->getMethodSymbol()->isVirtual() ||
         node->getSymbol()->getMethodSymbol()->isInterface()))
       addProfiling(node->getFirstChild(), tt);
-   else if (!node->getByteCodeInfo().doNotProfile() && 
+   else */if (!node->getByteCodeInfo().doNotProfile() &&
        (node->getOpCodeValue() == TR::instanceof ||
         node->getOpCodeValue() == TR::checkcast))
       addVFTProfiling(node->getFirstChild(), tt->getPrevTreeTop(), true);
@@ -280,7 +282,7 @@ TR_JProfilingValue::addVFTProfiling(TR::Node *address, TR::TreeTop *tt, bool add
    if (!performTransformation(comp(), "%s Add trees to track the vft lookup of node %p near tree %p, null check %d\n", optDetailString(), address, tt->getNode(), addNullCheck))
       return;
 
-   TR::Node *vftNode = TR::Node::createWithSymRef(address, TR::aloadi, 1, address,
+   /*TR::Node *vftNode = TR::Node::createWithSymRef(address, TR::aloadi, 1, address,
       getSymRefTab()->findOrCreateVftSymbolRef());
 
    TR::Node *check = NULL;
@@ -288,8 +290,20 @@ TR_JProfilingValue::addVFTProfiling(TR::Node *address, TR::TreeTop *tt, bool add
       check = TR::Node::createif(TR::ifacmpeq, address, TR::Node::aconst(address, 0));
 
    TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
+   TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));*/
+   addProfilingTrees(comp(), tt, /*vftNode*/address, /*info*/NULL, /*check*/NULL, true, trace(), true);
+
+   /*if (feGetEnv("TR_DisableJProfilingSnippet"))
+      return;
+
+   TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
    TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-   addProfilingTrees(comp(), tt, vftNode, info, check, true, trace());
+
+   TR::TreeTop *profilerCall = tt->insertAfter(TR::TreeTop::create(comp(), TR::Node::createWithSymRef(address, TR::call, 2,
+      getSymRefTab()->findOrCreateRuntimeHelper(TR_jProfileSnippetVFT, false, false, false))));
+
+   profilerCall->getNode()->setAndIncChild(0, address);
+   profilerCall->getNode()->setAndIncChild(1, TR::Node::aconst(address, info->getBaseAddress()));*/
    }
 
 /**
@@ -431,6 +445,7 @@ TR_JProfilingValue::lowerCalls()
  * \param optionalTest Option test node capable of preventing evaluation of value and using a fallbackValue instead.
  * \param extendBlocks Generates the blocks as extended, defaults true.
  * \param trace Enable tracing.
+ * \param cold Puts all profiling trees on the cold path.
  */
 bool
 TR_JProfilingValue::addProfilingTrees(
@@ -440,9 +455,10 @@ TR_JProfilingValue::addProfilingTrees(
     TR_AbstractHashTableProfilerInfo *table,
     TR::Node *optionalTest,
     bool extendBlocks,
-    bool trace)
+    bool trace,
+    bool cold)
    {
-   // Common types used in calculation
+   /*// Common types used in calculation
    TR::DataType counterType = TR::Int32;
    TR::DataType lockType    = TR::Int16;
    TR::DataType systemType  = TR::Compiler->target.is64Bit() ? TR::Int64 : TR::Int32;
@@ -485,10 +501,10 @@ TR_JProfilingValue::addProfilingTrees(
       prev = cursor;
       cursor = cursor->getNextBlock();
       }
-   TR::TreeTop *lastTreeTop = prev->getExit();
+   TR::TreeTop *lastTreeTop = prev->getExit();*/
 
    /********************* original Block *********************/
-   if (trace)
+   /*if (trace)
       traceMsg(comp, " Profiled value n%dn into temp\n", value->getGlobalIndex());
 
    TR::Block *quickTest = NULL;
@@ -509,8 +525,8 @@ TR_JProfilingValue::addProfilingTrees(
       replaceNode(comp, extendedBlock->getEntry(), storeValue->getNextTreeTop(),
          value->getFirstChild(), TR::Node::createLoad(value->getFirstChild(), storedObjectSymRef));
       // We need to store the value we are profiling in temp slot to be used by helper. 
+      TR::TreeTop *storeProfilingValue = TR::TreeTop::create(comp, storeValue, storeNode(comp, value, storedValueSymRef));
       quickTest = originalBlock->split(storeValue->getNextTreeTop(), cfg, true, true);
-      TR::TreeTop *storeProfilingValue = TR::TreeTop::create(comp, quickTest->getEntry(), storeNode(comp, value, storedValueSymRef));
       quickTestLastProfilingTT = storeProfilingValue;
       }
    else
@@ -523,9 +539,9 @@ TR_JProfilingValue::addProfilingTrees(
       quickTestLastProfilingTT = quickTest->getEntry();
       }
 
-   quickTest->setIsExtensionOfPreviousBlock();
+   quickTest->setIsExtensionOfPreviousBlock();*/
    /********************* quickTest Block *********************/
-   TR::Node *quickTestValue = convertType(value, roundedType);
+   /*TR::Node *quickTestValue = convertType(value, roundedType);
    
    if (trace)
       traceMsg(comp, "  Hash calculation in block_%d\n", quickTest->getNumber());
@@ -580,11 +596,11 @@ TR_JProfilingValue::addProfilingTrees(
       TR::TreeTop *checkIfNeedToProfileValue = TR::TreeTop::create(comp, checkIfQueueForRecompilation);
       originalBlock->append(checkIfNeedToProfileValue);
       cfg->addEdge(originalBlock, mainlineReturn);
-      }
+      }*/
 
    /********************* helper Block *********************/
    // Build the helper call path
-   TR::Block *helper = TR::Block::createEmptyBlock(comp, MAX_COLD_BLOCK_COUNT + 1);
+   /*TR::Block *helper = TR::Block::createEmptyBlock(comp, MAX_COLD_BLOCK_COUNT + 1);
    helper->setIsCold();
    lastTreeTop->join(helper->getEntry());
    lastTreeTop = helper->getExit();
@@ -600,16 +616,27 @@ TR_JProfilingValue::addProfilingTrees(
    TR::TreeTop::create(comp, helper->getEntry(), TR::Node::create(value, TR::Goto, 0, mainlineReturn->getEntry()));
    TR::TreeTop *helperCallTreeTop = TR::TreeTop::create(comp, helper->getEntry(), createHelperCall(comp,
       convertType(TR::Node::createLoad(value, storedValueSymRef), roundedType),
-      TR::Node::aconst(value, table->getBaseAddress())));
+      TR::Node::aconst(value, table->getBaseAddress())));*/
 
    /********************* fallback Block *********************/
+
+   /*TR::Block* optionalTestBlock = NULL;
 
    // Insert the optional test and split after it
    if (optionalTest)
       {
       TR::TreeTop *testTree = TR::TreeTop::create(comp, optionalTest);
+
+      // IMPORTANT: The test must be added to the block *before* splitting to ensure that nodes are
+      // uncommoned correctly
       originalBlock->append(testTree);
-      optionalTest->setBranchDestination(mainlineReturn->getEntry()); 
+      optionalTestBlock = originalBlock->split(testTree, cfg, true, true);
+
+      optionalTest->setBranchDestination(mainlineReturn->getEntry());
+      cfg->addEdge(optionalTestBlock, mainlineReturn);
+
+      if (trace)
+         traceMsg(comp, "  Optional test in block_%d\n", optionalTestBlock->getNumber());
       }
 
    // Set profiling code flags
@@ -631,6 +658,81 @@ TR_JProfilingValue::addProfilingTrees(
          setProfilingCode(node, checklist);
       tt = tt->getNextTreeTop();
       }
+
+   // Move all profiling code to the cold path if needed
+   if (cold)
+      {
+      if (trace)
+         traceMsg(comp, " Moving profiling trees onto the cold path\n");
+
+      TR::Block *firstProfBlock = optionalTestBlock ? optionalTestBlock : quickTest;
+      TR::Block *lastProfBlock = quickInc;
+
+      // Since we're about to move the profiling code to no longer be a fallthrough, it can no
+      // longer be treated as an extended basic block
+      firstProfBlock->setIsExtensionOfPreviousBlock(false);
+
+      comp->createDummyGuard(comp, -1, firstProfBlock->getEntry()->getNode(), firstProfBlock->getEntry());
+
+      // Move all non-helper profiling blocks to be just before the helper block
+      helper->getPrevBlock()->getExit()->join(firstProfBlock->getEntry());
+      lastProfBlock->getExit()->join(helper->getEntry());
+      originalBlock->getExit()->join(mainlineReturn->getEntry());
+
+      // Inject a test into the original block to branch to the profiling blocks if jProfiling has
+      // been enabled
+      TR_PersistentProfileInfo *profileInfo = comp->getRecompilationInfo()->findOrCreateProfileInfo();
+      TR_BlockFrequencyInfo *bfi = TR_BlockFrequencyInfo::get(profileInfo);
+      TR::SymbolReference *jprofilingEnabled = comp->getSymRefTab()->createKnownStaticDataSymbolRef(bfi->getEnableJProfilingRecompilation(), TR::Int32);
+
+      TR::Node *enterBranch = TR::Node::createif(TR::ificmpeq, TR::Node::createWithSymRef(value, TR::iload, 0, jprofilingEnabled), TR::Node::iconst(-1), firstProfBlock->getEntry());
+      originalBlock->append(TR::TreeTop::create(comp, enterBranch));
+      cfg->addEdge(originalBlock, firstProfBlock);
+
+      if (trace)
+         traceMsg(comp, "  Added profiling enter check in block_%d\n", originalBlock->getNumber());
+
+      // Inject a goto back into the mainline after profiling is done
+      TR::Block *exitGotoBlock = lastProfBlock->split(lastProfBlock->getExit(), cfg);
+      TR::TreeTop::create(comp, exitGotoBlock->getEntry(), TR::Node::create(value, TR::Goto, 0, mainlineReturn->getEntry()));
+      exitGotoBlock->setIsExtensionOfPreviousBlock();
+
+      if (trace)
+         traceMsg(comp, "  Added profiling exit goto in block_%d\n", exitGotoBlock->getNumber());
+
+      // Mark all profiling blocks as cold
+      for (TR::Block *b = firstProfBlock; b != exitGotoBlock->getNextBlock(); b = b->getNextBlock())
+         {
+         b->setFrequency(MAX_COLD_BLOCK_COUNT + 1);
+         b->setIsCold();
+         }
+      }
+
+   return true;*/
+
+   TR::Block *block = insertionPoint->getEnclosingBlock();
+
+   // insertionPoint = insertionPoint->insertAfter(createRegisterStore(comp, value, 0));
+   block->splitPostGRA(insertionPoint->getNextTreeTop(), comp->getFlowGraph(), 0);
+
+   /*TR::Node *regDeps;
+
+   if (block->getExit()->getNode()->getNumChildren() > 0)
+      {
+      regDeps = block->getExit()->getNode()->getChild(0);
+      TR_ASSERT_FATAL(regDeps->getOpCodeValue() == TR::GlRegDeps, "Block %d has exit node with non-GlRegDeps child", block->getNumber());
+      }
+   else
+      {
+      regDeps = TR::Node::create(TR::GlRegDeps);
+      block->getExit()->getNode()->addChildren(&regDeps, 1);
+      }
+
+   TR::Node *regDepsPassThroughs[1];
+
+   regDepsPassThroughs[0] = createGlRegDepsPassThrough(comp, value, 0);
+
+   regDeps->addChildren(regDepsPassThroughs, 1);*/
 
    return true;
    }
@@ -862,6 +964,28 @@ TR_JProfilingValue::convertType(TR::Node *index, TR::DataType dataType, bool zer
       return index;
 
    return TR::Node::create(index, TR::ILOpCode::getProperConversion(index->getDataType(), dataType, zeroExtend), 1, index);
+   }
+
+TR::TreeTop *
+TR_JProfilingValue::createRegisterStore(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg)
+   {
+   TR::Node *regStore = TR::Node::create(comp->il.opCodeForRegisterStore(value->getDataType()), 1, value);
+
+   regStore->setLowGlobalRegisterNumber(reg);
+   regStore->setHighGlobalRegisterNumber(-1);
+
+   return TR::TreeTop::create(comp, regStore);
+   }
+
+TR::Node *
+TR_JProfilingValue::createGlRegDepsPassThrough(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg)
+   {
+   TR::Node *passThrough = TR::Node::create(TR::PassThrough, 1, value);
+
+   passThrough->setLowGlobalRegisterNumber(reg);
+   passThrough->setHighGlobalRegisterNumber(-1);
+
+   return passThrough;
    }
 
 /**

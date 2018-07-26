@@ -57,9 +57,12 @@ class TR_JProfilingValue : public TR::Optimization
       TR_AbstractHashTableProfilerInfo *table,
       TR::Node *optionalTest = NULL,
       bool extendBlocks = true,
-      bool trace = false);
+      bool trace = false,
+      bool cold = false);
 
    private:
+   static TR::TreeTop *createRegisterStore(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg);
+   static TR::Node *createGlRegDepsPassThrough(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg);
    static TR::Node *computeHash(TR::Compilation *comp, TR_AbstractHashTableProfilerInfo *table, TR::Node *value, TR::Node *baseAddr);
 
    // Helpers for inserting the profiling trees
