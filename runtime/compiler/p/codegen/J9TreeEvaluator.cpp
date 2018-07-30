@@ -11797,6 +11797,56 @@ static TR::Register *inlineEncodeUTF16(TR::Node *node, TR::CodeGenerator *cg)
    return outputLenReg;
    }
 
+static TR::Register* intrinsicIndexOf(TR::Node* node, TR::CodeGenerator* cg, bool isCompressed)
+   {
+   TR::Register *arrayAddress = cg->evaluate(node->getChild(1));
+   TR::Register *target = cg->evaluate(node->getChild(2));
+   TR::Register *startIndex = cg->gprClobberEvaluate(node->getChild(3));
+   TR::Register *endIndex = cg->gprClobberEvaluate(node->getChild(4));
+
+   TR::Register *address = cg->allocateRegister();
+
+   generateTrg1Src1ImmInstruction(cg, TR::InstOpCode::addi, node, address, arrayAddress, TR::Compiler->om.contiguousArrayHeaderSizeInBytes());
+   cg->decReferenceCount(node->getChild(1));
+
+   TR::RegisterDependencyConditions *deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(13, 13, cg->trMemory());
+
+   addDependency(deps, startIndex, TR::RealRegister::gr3, TR_GPR, cg);
+   addDependency(deps, endIndex, TR::RealRegister::gr4, TR_GPR, cg);
+   addDependency(deps, address, TR::RealRegister::gr5, TR_GPR, cg);
+   addDependency(deps, target, TR::RealRegister::gr6, TR_GPR, cg);
+
+   addDependency(deps, NULL, TR::RealRegister::cr0, TR_CCR, cg);
+   addDependency(deps, NULL, TR::RealRegister::cr6, TR_CCR, cg);
+
+   addDependency(deps, NULL, TR::RealRegister::gr7, TR_GPR, cg);
+   addDependency(deps, NULL, TR::RealRegister::gr8, TR_GPR, cg);
+   addDependency(deps, NULL, TR::RealRegister::gr9, TR_GPR, cg);
+
+   addDependency(deps, NULL, TR::RealRegister::vr0, TR_VRF, cg);
+   addDependency(deps, NULL, TR::RealRegister::vr1, TR_VRF, cg);
+   addDependency(deps, NULL, TR::RealRegister::vr2, TR_VRF, cg);
+   addDependency(deps, NULL, TR::RealRegister::vr3, TR_VRF, cg);
+
+   TR::TreeEvaluator::generateHelperBranchAndLinkInstruction(
+      isCompressed ? TR_PPCstringIndexOfByte : TR_PPCstringIndexOfShort,
+      node, deps, cg);
+
+   node->setRegister(startIndex);
+
+   deps->stopUsingDepRegs(cg, startIndex);
+   cg->stopUsingRegister(address);
+   cg->stopUsingRegister(endIndex);
+
+   cg->decReferenceCount(node->getChild(2));
+   cg->decReferenceCount(node->getChild(3));
+   cg->decReferenceCount(node->getChild(4));
+
+   cg->machine()->setLinkRegisterKilled(true);
+
+   return startIndex;
+   }
+
 extern TR::Register *inlineLongRotateLeft(TR::Node *node, TR::CodeGenerator *cg);
 extern TR::Register *inlineIntegerRotateLeft(TR::Node *node, TR::CodeGenerator *cg);
 extern TR::Register *inlineBigDecimalConstructor(TR::Node *node, TR::CodeGenerator *cg, bool isLong, bool exp);
@@ -12124,6 +12174,15 @@ J9::Power::CodeGenerator::inlineDirectCall(TR::Node *node, TR::Register *&result
          if (TR::Compiler->target.cpu.id() >= TR_PPCp7 && TR::Compiler->target.cpu.getPPCSupportsVSX())
             {
             resultReg = inlineEncodeUTF16(node, cg);
+            return true;
+            }
+         break;
+
+      case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfLatin1:
+      case TR::com_ibm_jit_JITHelpers_intrinsicIndexOfUTF16:
+         if (cg->getSupportsInlineStringIndexOf())
+            {
+            resultReg = intrinsicIndexOf(node, cg, methodSymbol->getRecognizedMethod() == TR::com_ibm_jit_JITHelpers_intrinsicIndexOfLatin1);
             return true;
             }
          break;

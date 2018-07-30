@@ -199,10 +199,10 @@ jint JNICALL J9_CreateJavaVM(JavaVM ** p_vm, void ** p_env, J9CreateJavaVMParams
 
 	TRIGGER_J9HOOK_VM_THREAD_STARTED(vm->hookInterface, env, env);
 
-	if (0 != launchAttachApi(env)) {
+   /*if (0 != launchAttachApi(env)) {
 		result = JNI_ERR;
 		goto error;
-	}
+   }*/
 
     enterVMFromJNI(env);
 	jniResetStackReferences((JNIEnv *) env);

@@ -52,6 +52,7 @@ j9jit_files(
 	p/runtime/J9PPCCompressString.spp
 	p/runtime/J9PPCCRC32.spp
 	p/runtime/J9PPCCRC32_wrapper.c
+   p/runtime/J9PPCStringIndexOf.spp
 	p/runtime/CodeSync.cpp
 	p/runtime/Math.spp
 	p/runtime/PicBuilder.spp

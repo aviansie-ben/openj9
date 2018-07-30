@@ -503,6 +503,9 @@ JIT_HELPER(AESCBCDecrypt_PPC);
 JIT_HELPER(AESCBCEncrypt_PPC);
 #endif
 
+JIT_HELPER(__stringIndexOf_byte);
+JIT_HELPER(__stringIndexOf_short);
+
 #elif defined(TR_HOST_ARM)
 JIT_HELPER(__intDivide);
 JIT_HELPER(__intRemainder);
@@ -1370,6 +1373,8 @@ void initializeCodeRuntimeHelperTable(J9JITConfig *jitConfig, char isSMP)
    SET(TR_PPCarrayTranslateTROT,       (void *) __arrayTranslateTROT,    TR_Helper);
    SET(TR_PPCencodeUTF16Big,           (void *) __encodeUTF16Big,        TR_Helper);
    SET(TR_PPCencodeUTF16Little,        (void *) __encodeUTF16Little,     TR_Helper);
+   SET(TR_PPCstringIndexOfByte,        (void *) __stringIndexOf_byte,    TR_Helper);
+   SET(TR_PPCstringIndexOfShort,       (void *) __stringIndexOf_short,   TR_Helper);
 
 #elif defined(TR_HOST_ARM)
    SET(TR_ARMdouble2Long,                                (void *) __double2Long,                                  TR_Helper);
