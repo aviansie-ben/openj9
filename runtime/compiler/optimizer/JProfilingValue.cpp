@@ -164,7 +164,7 @@ loadConst(TR::DataType dt)
 int32_t
 TR_JProfilingValue::perform() 
    {
-   if (comp()->getOption(TR_EnableSplitPostGRA))
+   if (comp()->getOption(TR_EnableSplitPostGRA) || true)
       {}
    else if (comp()->getProfilingMode() == JProfiling)
       {
