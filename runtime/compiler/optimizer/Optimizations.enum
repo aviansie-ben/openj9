@@ -32,5 +32,6 @@
    OPTIMIZATION(osrGuardInsertion)
    OPTIMIZATION(osrGuardRemoval)
    OPTIMIZATION(jProfilingBlock)
-   OPTIMIZATION(jProfilingValue)
+   OPTIMIZATION(jProfilingValuePreGRA)
+   OPTIMIZATION(jProfilingValuePostGRA)
    OPTIMIZATION(jProfilingRecompLoopTest)

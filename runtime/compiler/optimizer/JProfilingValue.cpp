@@ -164,17 +164,35 @@ loadConst(TR::DataType dt)
 int32_t
 TR_JProfilingValue::perform() 
    {
-   if (comp()->getOption(TR_EnableSplitPostGRA))
+   if (comp()->getOption(TR_EnableSplitPostGRA) && isPostGRA)
       {}
    else if (comp()->getProfilingMode() == JProfiling)
       {
-      if (trace())
-         traceMsg(comp(), "JProfiling has been enabled for profiling compilations, run JProfilingValue\n");
+      if (isPostGRA)
+         {
+         if (trace())
+            traceMsg(comp(), "JProfiling has already run pre-GRA, skip JProfilingValue\n");
+         return 0;
+         }
+      else
+         {
+         if (trace())
+            traceMsg(comp(), "JProfiling has been enabled for profiling compilations, run JProfilingValue\n");
+         }
       }
    else if (comp()->getOption(TR_EnableJProfiling))
       {
-      if (trace())
-         traceMsg(comp(), "JProfiling has been enabled, run JProfilingValue\n");
+      if (isPostGRA)
+         {
+         if (trace())
+            traceMsg(comp(), "JProfiling has been enabled, run JProfilingValue\n");
+         }
+      else
+         {
+         if (trace())
+            traceMsg(comp(), "JProfiling will run post-GRA, skip JProfilingValue\n");
+         return 0;
+         }
       }
    else 
       {

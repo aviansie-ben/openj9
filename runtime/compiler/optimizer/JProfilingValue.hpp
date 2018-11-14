@@ -33,12 +33,16 @@ class TR_JProfilingValue : public TR::Optimization
    {
    public:
 
-   TR_JProfilingValue(TR::OptimizationManager *manager)
-      : TR::Optimization(manager)
+   TR_JProfilingValue(TR::OptimizationManager *manager, bool isPostGRA)
+      : TR::Optimization(manager), isPostGRA(isPostGRA)
       {}
-   static TR::Optimization *create(TR::OptimizationManager *manager)
+   static TR::Optimization *createPreGRA(TR::OptimizationManager *manager)
       {
-      return new (manager->allocator()) TR_JProfilingValue(manager);
+      return new (manager->allocator()) TR_JProfilingValue(manager, false);
+      }
+   static TR::Optimization *createPostGRA(TR::OptimizationManager *manager)
+      {
+      return new (manager->allocator()) TR_JProfilingValue(manager, true);
       }
 
    virtual int32_t perform();
@@ -61,6 +65,8 @@ class TR_JProfilingValue : public TR::Optimization
       bool cold = false);
 
    private:
+   bool isPostGRA;
+
    static TR::TreeTop *createRegisterStore(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg);
    static TR::Node *createGlRegDepsPassThrough(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg);
    static TR::Node *computeHash(TR::Compilation *comp, TR_AbstractHashTableProfilerInfo *table, TR::Node *value, TR::Node *baseAddr);
