@@ -405,6 +405,11 @@ class TR_EmbeddedHashTable : public TR_HashTableProfilerInfo<T>
    size_t getKeysOffset() { return offsetof(this_t, _keys); }
    size_t getFreqOffset() { return offsetof(this_t, _freqs); }
 
+   static size_t getStaticKeysOffset() { return offsetof(this_t, _keys); }
+   static size_t getStaticFreqOffset() { return offsetof(this_t, _freqs); }
+   static size_t getStaticLockOffset() { return offsetof(this_t, _metaData.otherIndex); }
+   static size_t getStaticHashOffset() { return offsetof(this_t, _hashConfig); }
+
    protected:
    typedef TR_EmbeddedHashTable<T, bits> this_t;
    typedef typename TR_HashTableProfilerInfo<T>::HashFunction HashFunction;

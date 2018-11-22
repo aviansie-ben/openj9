@@ -36,6 +36,7 @@
 #include "control/RecompilationInfo.hpp"              // for TR_Recompilation, etc
 #include "codegen/CodeGenerator.hpp"
 #include "optimizer/TransformUtil.hpp"            // for TransformUtil
+#include "il/symbol/AutomaticSymbol.hpp"
 
 /**
  * Get the operation for direct store for a type.
@@ -164,7 +165,13 @@ loadConst(TR::DataType dt)
 int32_t
 TR_JProfilingValue::perform() 
    {
-   if (comp()->getOption(TR_EnableSplitPostGRA) && isPostGRA)
+   if (isPostGRA && !comp()->cg()->getSupportsGotoCall())
+      {
+      if (trace())
+         traceMsg(comp(), "JProfiling cannot add callable trees due to missing codegen support, skip JProfilingValue\n");
+      return 0;
+      }
+   else if (comp()->getOption(TR_EnableSplitPostGRA) && isPostGRA)
       {}
    else if (comp()->getProfilingMode() == JProfiling)
       {
@@ -200,6 +207,8 @@ TR_JProfilingValue::perform()
          traceMsg(comp(), "JProfiling has been disabled, skip JProfilingValue\n");
       return 0;
       }
+
+   comp()->getFlowGraph()->setStructure(NULL);
 
    // Scan and remove duplicate value profiling calls before lowering calls
    removeRedundantProfilingValueCalls(); 
@@ -277,7 +286,7 @@ TR_JProfilingValue::performOnNode(TR::Node *node, TR::TreeTop *tt, TR::NodeCheck
    else */if (!node->getByteCodeInfo().doNotProfile() &&
        (node->getOpCodeValue() == TR::instanceof ||
         node->getOpCodeValue() == TR::checkcast))
-      addVFTProfiling(node->getFirstChild(), tt->getPrevTreeTop(), true);
+      addVFTProfiling(node->getFirstChild(), tt, true);
 
    for (int i = 0; i < node->getNumChildren(); ++i)
       performOnNode(node->getChild(i), tt, checklist);
@@ -291,7 +300,7 @@ TR_JProfilingValue::addProfiling(TR::Node *value, TR::TreeTop *tt)
 
    TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
    TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(value->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-   addProfilingTrees(comp(), tt, value, info, NULL, true, trace());
+   // addProfilingTrees(comp(), tt, value, info, NULL, true, trace());
    }
 
 void
@@ -305,11 +314,11 @@ TR_JProfilingValue::addVFTProfiling(TR::Node *address, TR::TreeTop *tt, bool add
 
    TR::Node *check = NULL;
    if (addNullCheck)
-      check = TR::Node::createif(TR::ifacmpeq, address, TR::Node::aconst(address, 0));
-
-   TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
-   TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));*/
-   addProfilingTrees(comp(), tt, /*vftNode*/address, /*info*/NULL, /*check*/NULL, true, trace(), true);
+      check = TR::Node::createif(TR::ifacmpeq, address, TR::Node::aconst(address, 0));*/
+   TR_ValueProfileInfo *valueProfileInfo = comp()->getRecompilationInfo()->findOrCreateProfileInfo()->findOrCreateValueProfileInfo(comp());
+   TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
+   // addProfilingTrees(comp(), tt, /*vftNode*/address, /*info*/NULL, /*check*/NULL, true, trace(), true);
+   addProfilingPoint(comp(), tt, address, info, true);
 
    /*if (feGetEnv("TR_DisableJProfilingSnippet"))
       return;
@@ -375,7 +384,7 @@ TR_JProfilingValue::lowerCalls()
          // Extract the arguments and add the profiling trees
          TR::Node *value = child->getFirstChild();
          TR_AbstractHashTableProfilerInfo *table = (TR_AbstractHashTableProfilerInfo*) child->getSecondChild()->getAddress();
-         addProfilingTrees(comp(), cursor, value, table, NULL, true, trace());
+         addProfilingPoint(comp(), cursor, value, table, false);
 
          // Remove the original trees and continue from the tree after the profiling
          TR::TransformUtil::removeTree(comp(), cursor);
@@ -465,17 +474,15 @@ TR_JProfilingValue::lowerCalls()
  * \param trace Enable tracing.
  * \param cold Puts all profiling trees on the cold path.
  */
-bool
-TR_JProfilingValue::addProfilingTrees(
+void
+TR_JProfilingValue::addInlineProfilingTrees(
     TR::Compilation *comp,
     TR::TreeTop *insertionPoint,
     TR::Node *value,
     TR_AbstractHashTableProfilerInfo *table,
-    TR::Node *optionalTest,
-    bool extendBlocks,
-    bool trace,
-    bool cold)
+    bool isVftProfile)
    {
+   // TODO: FIX ALL OF THIS!
    /*// Common types used in calculation
    TR::DataType counterType = TR::Int32;
    TR::DataType lockType    = TR::Int16;
@@ -721,38 +728,308 @@ TR_JProfilingValue::addProfilingTrees(
       // Mark all profiling blocks as cold
       for (TR::Block *b = firstProfBlock; b != exitGotoBlock->getNextBlock(); b = b->getNextBlock())
          {
-         b->setFrequency(MAX_COLD_BLOCK_COUNT + 1);
+         b->setFrequency(MAX_COLD_BLOCK_COUNT + 1);address
          b->setIsCold();
          }
       }
 
    return true;*/
+   }
 
-   TR::Block *block = insertionPoint->getEnclosingBlock();
+static TR::SymbolReference*
+createAutoTemp(TR::Compilation* comp, TR::Node* value, bool isNotCollected)
+   {
+   TR::AutomaticSymbol *sym = TR::AutomaticSymbol::create(comp->trHeapMemory(), value->getDataType(), value->getSize());
+   if (isNotCollected)
+      sym->setNotCollected();
 
-   // insertionPoint = insertionPoint->insertAfter(createRegisterStore(comp, value, 0));
-   block->splitPostGRA(insertionPoint->getNextTreeTop(), comp->getFlowGraph(), 0);
+   comp->getMethodSymbol()->addAutomatic(sym);
 
-   /*TR::Node *regDeps;
+   return new (comp->trHeapMemory()) TR::SymbolReference(
+      comp->getSymRefTab(),
+      sym,
+      comp->getMethodSymbol()->getResolvedMethodIndex(),
+      comp->getMethodSymbol()->incTempIndex(comp->fe()));
+   }
 
-   if (block->getExit()->getNode()->getNumChildren() > 0)
+// TODO: Support 32-bit
+// IMPORTANT: DO NOT MERGE UNDER ANY CIRCUMSTANCES UNTIL ALL HACKS ARE REMOVED, OTHERWISE YOU WILL
+//            UNLEASH CTHULU AND BRING ABOUT THE END OF THE WORLD AS WE KNOW IT IF ANYTHING IN THE
+//            CODEBASE CHANGES!!!! I CANNOT UNDERSTATE THE IMPORTANCE OF **NOT** MERGING THESE
+//            HACKY WORKAROUNDS INTO MASTER!!!!
+void
+TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *orig)
+   {
+   TR::CFG *cfg = comp->getFlowGraph();
+
+   // Find the last block in the method...
+   TR::Block *lastBlock = comp->getStartBlock();
+   while (lastBlock->getNextBlock())
+      lastBlock = lastBlock->getNextBlock();
+
+   // ...and add a new block after it for out-of-line profiling
+   TR::Block *nullTestBlock = TR::Block::createEmptyBlock(comp, MAX_COLD_BLOCK_COUNT + 1);
+   nullTestBlock->setIsCold();
+   nullTestBlock->setIsGotoCallTarget();
+   lastBlock->getExit()->setNextTreeTop(nullTestBlock->getEntry());
+   nullTestBlock->getEntry()->setPrevTreeTop(lastBlock->getExit());
+   cfg->addNode(nullTestBlock);
+
+   // Next, split that block into the necessary blocks to actually perform the value profiling
+   TR::Block *vftLoadBlock = nullTestBlock->split(nullTestBlock->getExit(), cfg);
+   vftLoadBlock->setIsExtensionOfPreviousBlock();
+
+   TR::Block *quickTestBlock = vftLoadBlock->split(vftLoadBlock->getExit(), cfg);
+
+   TR::Block *quickIncBlock = quickTestBlock->split(quickTestBlock->getExit(), cfg);
+   quickIncBlock->setIsExtensionOfPreviousBlock();
+
+   TR::Block *helperCallBlock = quickIncBlock->split(quickIncBlock->getExit(), cfg);
+
+   TR::Block *returnBlock = helperCallBlock->split(helperCallBlock->getExit(), cfg);
+
+   // Now adjust the CFG for the control flow we'll be adding later
+   cfg->addEdge(nullTestBlock, returnBlock);
+   cfg->addEdge(quickTestBlock, helperCallBlock);
+   cfg->addEdge(quickIncBlock, returnBlock);
+   cfg->removeEdge(quickIncBlock, helperCallBlock);
+
+   // Set up the initial register dependencies
+   TR::Node *regDeps = nullTestBlock->getEntryGlRegDeps();
+
+   for (TR_GlobalRegisterNumber gpr = comp->cg()->getFirstGlobalGPR() + 2; gpr <= comp->cg()->getLastGlobalGPR(); gpr++)
       {
-      regDeps = block->getExit()->getNode()->getChild(0);
-      TR_ASSERT_FATAL(regDeps->getOpCodeValue() == TR::GlRegDeps, "Block %d has exit node with non-GlRegDeps child", block->getNumber());
+      TR::Node *load = TR::Node::create(orig, comp->il.opCodeForRegisterLoad(TR::DataTypes::Address));
+      load->setGlobalRegisterNumber(gpr);
+      load->setRegLoadStoreSymbolReference(createAutoTemp(comp, load, true));
+      regDeps->addChild(load);
+      }
+
+   if (comp->cg()->getFirstGlobalFPR() != -1)
+      {
+      for (TR_GlobalRegisterNumber fpr = comp->cg()->getFirstGlobalFPR(); fpr <= comp->cg()->getLastGlobalFPR(); fpr++)
+         {
+         TR::Node *load = TR::Node::create(orig, comp->il.opCodeForRegisterLoad(TR::DataTypes::Double));
+         load->setGlobalRegisterNumber(fpr);
+         load->setRegLoadStoreSymbolReference(createAutoTemp(comp, load, true));
+         regDeps->addChild(load);
+         }
+      }
+
+   if (comp->cg()->getFirstGlobalVRF() != -1)
+      {
+      for (TR_GlobalRegisterNumber vrf = comp->cg()->getFirstGlobalVRF(); vrf <= comp->cg()->getLastGlobalVRF(); vrf++)
+         {
+         TR::Node *load = TR::Node::create(orig, comp->il.opCodeForRegisterLoad(TR::DataTypes::VectorInt8));
+         load->setGlobalRegisterNumber(vrf);
+         load->setRegLoadStoreSymbolReference(createAutoTemp(comp, load, true));
+         regDeps->addChild(load);
+         }
+      }
+
+   TR::Node *tableLoad = TR::Node::create(orig, comp->il.opCodeForRegisterLoad(TR::DataTypes::Address));
+   tableLoad->setGlobalRegisterNumber(cg()->getFirstGlobalGPR() + 1);
+   tableLoad->setRegLoadStoreSymbolReference(createAutoTemp(comp, tableLoad, true));
+
+   TR::Node *valLoad = TR::Node::create(orig, comp->il.opCodeForRegisterLoad(TR::DataTypes::Address));
+   valLoad->setGlobalRegisterNumber(cg()->getFirstGlobalGPR());
+   valLoad->setRegLoadStoreSymbolReference(createAutoTemp(comp, valLoad, true));
+
+   regDeps->addChild(tableLoad);
+   regDeps->addChild(valLoad);
+
+   {
+   // Generate nullTestBlock
+   TR::Node *newRegDeps = regDeps->createExitGlRegDeps();
+   newRegDeps->getChild(newRegDeps->getNumChildren() - 1)->decReferenceCount();
+   newRegDeps->getChild(newRegDeps->getNumChildren() - 2)->decReferenceCount();
+   newRegDeps->setNumChildren(newRegDeps->getNumChildren() - 2);
+
+   TR::TreeTop *nullTestTT = TR::TreeTop::create(comp,
+      TR::Node::createif(TR::ifacmpeq,
+         valLoad,
+         TR::Node::aconst(orig, 0),
+         returnBlock->getEntry()));
+   nullTestTT->getNode()->setByteCodeInfo(orig->getByteCodeInfo());
+   nullTestTT->getNode()->addChild(newRegDeps);
+   nullTestBlock->append(nullTestTT);
+
+   // Generate vftLoadBlock
+   TR::Node *vftLoad = TR::Node::createWithSymRef(orig, TR::aloadi, 1, valLoad,
+      getSymRefTab()->findOrCreateVftSymbolRef());
+   TR::TreeTop *vftLoadTT = TR::TreeTop::create(comp, TR::Node::create(orig, TR::aRegStore, 1, vftLoad));
+   vftLoadTT->getNode()->setGlobalRegisterNumber(cg()->getFirstGlobalGPR());
+   vftLoadTT->getNode()->setRegLoadStoreSymbolReference(valLoad->getRegLoadStoreSymbolReference());
+   vftLoadBlock->append(vftLoadTT);
+
+   TR::Node *vftPassThrough = TR::Node::create(TR::PassThrough, 1, vftLoad);
+   vftPassThrough->setGlobalRegisterNumber(cg()->getFirstGlobalGPR());
+
+   regDeps = regDeps->createExitGlRegDeps();
+   regDeps->getChild(regDeps->getNumChildren() - 1)->decReferenceCount();
+   regDeps->setAndIncChild(regDeps->getNumChildren() - 1, vftPassThrough);
+
+   vftLoadBlock->setExitGlRegDeps(regDeps);
+   }
+
+   {
+   TR::Node *newRegDeps = regDeps->createEntryGlRegDeps();
+   quickTestBlock->setEntryGlRegDeps(newRegDeps);
+   valLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 1);
+   tableLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 2);
+
+   // Generate quickTestBlock
+   TR::Node *otherIndexOff = TR::Node::lconst(orig, TR_EmbeddedHashTable<uint64_t, 2>::getStaticLockOffset() /* HACK!! */);
+   TR::Node *keysOff = TR::Node::lconst(orig, TR_EmbeddedHashTable<uint64_t, 2>::getStaticKeysOffset() /* HACK!! */);
+
+   TR::Node *hashIndex = computeHackyHash(comp, valLoad, tableLoad); /* HACK!! */
+   TR::Node *otherIndex = TR::Node::create(orig, TR::s2l, 1,
+      TR::Node::createWithSymRef(orig, TR::sloadi, 1,
+         TR::Node::create(orig, TR::aladd, 2, tableLoad, otherIndexOff),
+         getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Int16)));
+
+   TR::Node *foundKey = TR::Node::createWithSymRef(orig, TR::aloadi, 1,
+      TR::Node::create(orig, TR::aladd, 2,
+         TR::Node::create(orig, TR::aladd, 2, tableLoad, keysOff),
+         TR::Node::create(orig, TR::lmul, 2, hashIndex, TR::Node::lconst(orig, 8) /* HACK!! */)),
+      getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Address));
+
+   TR::Node *actualIndex = TR::Node::create(orig, TR::lternary, 3,
+      TR::Node::create(orig, TR::acmpeq, 2, foundKey, valLoad),
+      hashIndex);
+   actualIndex->setAndIncChild(2, otherIndex);
+
+   TR::TreeTop *quickTestTT = TR::TreeTop::create(comp,
+      TR::Node::createif(TR::iflcmplt, actualIndex, TR::Node::lconst(0), helperCallBlock->getEntry()));
+   quickTestTT->getNode()->setByteCodeInfo(orig->getByteCodeInfo());
+   quickTestTT->getNode()->addChild(newRegDeps->createExitGlRegDeps());
+   quickTestBlock->append(quickTestTT);
+
+   // Generate quickIncBlock
+   TR::Node *freqOff = TR::Node::lconst(orig, TR_EmbeddedHashTable<uint64_t, 2>::getStaticFreqOffset() /* HACK!! */);
+   TR::SymbolReference *freqShadow = getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Int32);
+
+   TR::Node *freqAddr = TR::Node::create(orig, TR::aladd, 2,
+      TR::Node::create(orig, TR::aladd, 2, tableLoad, freqOff),
+      TR::Node::create(orig, TR::lmul, 2, actualIndex, TR::Node::lconst(orig, 4) /* HACK!! */));
+   TR::Node *prevFreq = TR::Node::createWithSymRef(orig, TR::iloadi, 1, freqAddr, freqShadow);
+   TR::TreeTop *incTT = TR::TreeTop::create(comp,
+      TR::Node::createWithSymRef(orig, TR::istorei, 2,
+         freqAddr,
+         freqShadow));
+   incTT->getNode()->setAndIncChild(1,
+      TR::Node::create(orig, TR::iadd, 2, prevFreq, TR::Node::iconst(orig, 1)));
+   quickIncBlock->append(incTT);
+
+   newRegDeps = newRegDeps->createExitGlRegDeps();
+   newRegDeps->getChild(newRegDeps->getNumChildren() - 1)->decReferenceCount();
+   newRegDeps->getChild(newRegDeps->getNumChildren() - 2)->decReferenceCount();
+   newRegDeps->setNumChildren(newRegDeps->getNumChildren() - 2);
+
+   TR::TreeTop *gotoReturnTT = TR::TreeTop::create(comp, TR::Node::create(orig, TR::Goto));
+   gotoReturnTT->getNode()->setBranchDestination(returnBlock->getEntry());
+   gotoReturnTT->getNode()->addChild(newRegDeps);
+   quickIncBlock->append(gotoReturnTT);
+   }
+
+   {
+   TR::Node *newRegDeps = regDeps->createEntryGlRegDeps();
+   helperCallBlock->setEntryGlRegDeps(newRegDeps);
+   valLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 1);
+   tableLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 2);
+
+   // Generate helperCallBlock
+   TR::Node *value = TR::Node::create(orig, TR::a2l, 1, valLoad);
+   TR::TreeTop *helperCallTT = TR::TreeTop::create(comp, createHelperCall(comp, value, tableLoad));
+   helperCallBlock->append(helperCallTT);
+
+   newRegDeps = newRegDeps->createExitGlRegDeps();
+   newRegDeps->getChild(newRegDeps->getNumChildren() - 1)->decReferenceCount();
+   newRegDeps->getChild(newRegDeps->getNumChildren() - 2)->decReferenceCount();
+   newRegDeps->setNumChildren(newRegDeps->getNumChildren() - 2);
+   helperCallBlock->setExitGlRegDeps(newRegDeps);
+
+   regDeps = newRegDeps->createEntryGlRegDeps();
+   }
+
+   {
+   // Generate returnBlock
+   returnBlock->setEntryGlRegDeps(regDeps);
+
+   TR::TreeTop *returnTT = TR::TreeTop::create(comp,
+      TR::Node::create(TR::igoto, 2,
+         TR::Node::createWithSymRef(TR::aload, 0,
+            comp->getSymRefTab()->findOrCreateGotoCallReturnAddressSymbolRef()),
+         regDeps->createExitGlRegDeps()));
+   returnBlock->append(returnTT);
+   }
+
+   outOfLineVftProfileStart = nullTestBlock;
+   outOfLineValueProfileStart = quickTestBlock;
+   outOfLineProfileEnd = returnBlock;
+   }
+
+void
+TR_JProfilingValue::addProfilingPoint(
+   TR::Compilation *comp,
+   TR::TreeTop *insertionPoint,
+   TR::Node *value,
+   TR_AbstractHashTableProfilerInfo *table,
+   bool isVftProfile)
+   {
+   if (isPostGRA)
+      {
+      TR::CFG *cfg = comp->getFlowGraph();
+
+      if (!outOfLineVftProfileStart)
+         addOutOfLineProfilingTrees(comp, value);
+
+      TR::Block *outOfLineProfileStart = isVftProfile ? outOfLineVftProfileStart : outOfLineValueProfileStart;
+
+      TR_ASSERT_FATAL(!value->requiresRegisterPair(comp), "Register pairs not yet handled");
+
+      TR::Block *prevBlock = insertionPoint->getEnclosingBlock();
+      TR::Block *profilingBlock = prevBlock->split(insertionPoint, cfg);
+      profilingBlock->setIsExtensionOfPreviousBlock();
+
+      TR::Node *valStore = TR::Node::create(value, comp->il.opCodeForRegisterStore(value->getDataType()), 1, value);
+      valStore->setGlobalRegisterNumber(comp->cg()->getFirstGlobalGPR());
+
+      TR::Node *tableAddr = TR::Node::aconst(value, (uintptrj_t)table);
+      TR::Node *tableStore = TR::Node::create(value, TR::aRegStore, 1, tableAddr);
+      tableStore->setGlobalRegisterNumber(comp->cg()->getFirstGlobalGPR() + 1);
+
+      profilingBlock->prepend(TR::TreeTop::create(comp, valStore));
+      profilingBlock->prepend(TR::TreeTop::create(comp, tableStore));
+
+      TR::Block *nextBlock = profilingBlock->splitPostGRA(profilingBlock->getEntry()->getNextTreeTop()->getNextTreeTop()->getNextTreeTop(), cfg, 2);
+
+      TR::Node *valPassThrough = TR::Node::create(TR::PassThrough, 1, value);
+      valPassThrough->setGlobalRegisterNumber(comp->cg()->getFirstGlobalGPR());
+
+      TR::Node *tablePassThrough = TR::Node::create(TR::PassThrough, 1, tableAddr);
+      tablePassThrough->setGlobalRegisterNumber(comp->cg()->getFirstGlobalGPR() + 1);
+
+      profilingBlock->getExitGlRegDeps()->addChild(valPassThrough);
+      profilingBlock->getExitGlRegDeps()->addChild(tablePassThrough);
+
+      TR::Node *gotoProfiling = TR::Node::create(TR::Goto, 1, profilingBlock->getExitGlRegDeps());
+      gotoProfiling->setBranchDestination(outOfLineProfileStart->getEntry());
+      gotoProfiling->setIsGotoCall();
+
+      profilingBlock->getExitGlRegDeps()->decReferenceCount();
+      profilingBlock->getExit()->getNode()->setNumChildren(0);
+
+      profilingBlock->append(TR::TreeTop::create(comp, gotoProfiling));
+
+      cfg->addEdge(profilingBlock, outOfLineProfileStart);
+      cfg->addEdge(outOfLineProfileEnd, nextBlock);
+      cfg->removeEdge(profilingBlock, nextBlock);
       }
    else
       {
-      regDeps = TR::Node::create(TR::GlRegDeps);
-      block->getExit()->getNode()->addChildren(&regDeps, 1);
+      addInlineProfilingTrees(comp, insertionPoint, value, table, isVftProfile);
       }
-
-   TR::Node *regDepsPassThroughs[1];
-
-   regDepsPassThroughs[0] = createGlRegDepsPassThrough(comp, value, 0);
-
-   regDeps->addChildren(regDepsPassThroughs, 1);*/
-
-   return true;
    }
 
 /*
@@ -984,28 +1261,6 @@ TR_JProfilingValue::convertType(TR::Node *index, TR::DataType dataType, bool zer
    return TR::Node::create(index, TR::ILOpCode::getProperConversion(index->getDataType(), dataType, zeroExtend), 1, index);
    }
 
-TR::TreeTop *
-TR_JProfilingValue::createRegisterStore(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg)
-   {
-   TR::Node *regStore = TR::Node::create(comp->il.opCodeForRegisterStore(value->getDataType()), 1, value);
-
-   regStore->setLowGlobalRegisterNumber(reg);
-   regStore->setHighGlobalRegisterNumber(-1);
-
-   return TR::TreeTop::create(comp, regStore);
-   }
-
-TR::Node *
-TR_JProfilingValue::createGlRegDepsPassThrough(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg)
-   {
-   TR::Node *passThrough = TR::Node::create(TR::PassThrough, 1, value);
-
-   passThrough->setLowGlobalRegisterNumber(reg);
-   passThrough->setHighGlobalRegisterNumber(-1);
-
-   return passThrough;
-   }
-
 /**
  * Generate the hash calculation in nodes.
  * Supports generating calculations based on a series of shifts or a series of bit indices.
@@ -1016,7 +1271,11 @@ TR_JProfilingValue::createGlRegDepsPassThrough(TR::Compilation *comp, TR::Node *
  * \param baseAddr Optional base address of the table, if already known.
  */
 TR::Node *
-TR_JProfilingValue::computeHash(TR::Compilation *comp, TR_AbstractHashTableProfilerInfo *table, TR::Node *value, TR::Node *baseAddr)
+TR_JProfilingValue::computeHash(
+   TR::Compilation *comp,
+   TR_AbstractHashTableProfilerInfo *table,
+   TR::Node *value,
+   TR::Node *baseAddr)
    {
    TR_ASSERT(table->getDataType() == TR::Int32 || table->getDataType() == TR::Int64, "HashTable only expected to hold 32bit and 64bit values");
 
@@ -1072,6 +1331,26 @@ TR_JProfilingValue::computeHash(TR::Compilation *comp, TR_AbstractHashTableProfi
       }
    else
       TR_ASSERT(0, "Unsupported hash type");
+
+   return hash;
+   }
+
+TR::Node *
+TR_JProfilingValue::computeHackyHash(TR::Compilation *comp, TR::Node *value, TR::Node *baseAddr)
+   {
+   TR::ILOpCodes addSys   = TR::Compiler->target.is64Bit() ? TR::aladd : TR::aiadd;
+   TR::ILOpCodes constSys = TR::Compiler->target.is64Bit() ? TR::lconst : TR::iconst;
+
+   TR::Node *hash = NULL;
+   // Build the bit permute tree
+   TR::Node *hashAddr = TR::Node::create(value, addSys, 2, baseAddr, TR::Node::create(value, constSys, 0, TR_EmbeddedHashTable<uint64_t, 2>::getStaticHashOffset()));
+   hash = TR::Node::create(value, value->getDataType() == TR::Int32 ? TR::ibitpermute : TR::lbitpermute, 3);
+   hash->setAndIncChild(0, value);
+   hash->setAndIncChild(1, hashAddr);
+   hash->setAndIncChild(2, TR::Node::iconst(value, 2));
+
+   // Convert to the platform address width
+   hash = convertType(hash, TR::Compiler->target.is64Bit() ? TR::Int64 : TR::Int32);
 
    return hash;
    }

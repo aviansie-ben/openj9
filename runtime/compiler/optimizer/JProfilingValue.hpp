@@ -54,22 +54,33 @@ class TR_JProfilingValue : public TR::Optimization
    void addVFTProfiling(TR::Node *address, TR::TreeTop *tt, bool addNullCheck);
    void performOnNode(TR::Node *node, TR::TreeTop *tt, TR::NodeChecklist *checklist);
 
-   static bool addProfilingTrees(
+   void addInlineProfilingTrees(
       TR::Compilation *comp,
       TR::TreeTop *insertionPoint,
       TR::Node *value,
       TR_AbstractHashTableProfilerInfo *table,
-      TR::Node *optionalTest = NULL,
-      bool extendBlocks = true,
-      bool trace = false,
-      bool cold = false);
+      bool isVftProfile = false);
+
+   void addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *orig);
+
+   void addProfilingPoint(
+      TR::Compilation *comp,
+      TR::TreeTop *insertionPoint,
+      TR::Node *value,
+      TR_AbstractHashTableProfilerInfo *table,
+      bool isVftProfile = false);
 
    private:
    bool isPostGRA;
 
+   TR::Block *outOfLineVftProfileStart = NULL;
+   TR::Block *outOfLineValueProfileStart;
+   TR::Block *outOfLineProfileEnd;
+
    static TR::TreeTop *createRegisterStore(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg);
    static TR::Node *createGlRegDepsPassThrough(TR::Compilation *comp, TR::Node *value, TR_GlobalRegisterNumber reg);
    static TR::Node *computeHash(TR::Compilation *comp, TR_AbstractHashTableProfilerInfo *table, TR::Node *value, TR::Node *baseAddr);
+   static TR::Node *computeHackyHash(TR::Compilation *comp, TR::Node *value, TR::Node *baseAddr);
 
    // Helpers for inserting the profiling trees
    static void replaceNode(TR::Node* check, TR::Node* origNode, TR::Node *newNode, TR::NodeChecklist &checklist);
