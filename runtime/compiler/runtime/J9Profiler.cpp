@@ -743,6 +743,7 @@ TR_ValueProfiler::addHashTableProfilingTrees(
 
    if (_postLowering)
       {
+      // TODO: Figure out how this should work
       // TR_JProfilingValue::addProfilingTrees(comp(), cursorTree, node, (TR_AbstractHashTableProfilerInfo *) valueInfo);
       }
    else

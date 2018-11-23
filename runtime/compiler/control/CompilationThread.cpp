@@ -7246,9 +7246,6 @@ TR::CompilationInfoPerThreadBase::wrappedCompile(J9PortLibrary *portLib, void * 
                   }
                }
 
-            // TODO Remove after debugging
-            // options->setOption(TR_EnableJProfiling, true);
-
             bool doJProfile = false;
             if (that->_methodBeingCompiled->_reqFromJProfilingQueue)
                {
@@ -7261,6 +7258,7 @@ TR::CompilationInfoPerThreadBase::wrappedCompile(J9PortLibrary *portLib, void * 
                // Is this request a candidate for JProfiling?
                if (TR_JProfilingQueue::isJProfilingCandidate(that->_methodBeingCompiled, options, vm))
                   {
+                  // TODO: Remove this after benchmarking is done
                   static char *disableFilterOnJProfiling = /*feGetEnv("TR_DisableFilterOnJProfiling")*/ "";
                   // Apply the filter based on time
                   if (disableFilterOnJProfiling)
@@ -11480,7 +11478,7 @@ bool TR_JProfilingQueue::isJProfilingCandidate(TR_MethodToBeCompiled *entry, TR:
       !options->allowRecompilation())
       return false;
 
-   // TODO Remove after debugging
+   // TODO: Remove this after benchmarking is done
    static char *disableFilterOnJProfiling = /*feGetEnv("TR_DisableFilterOnJProfiling")*/"";
    if (!disableFilterOnJProfiling &&
       !fej9->isClassLibraryMethod((TR_OpaqueMethodBlock *)entry->getMethodDetails().getMethod(), true))

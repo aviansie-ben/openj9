@@ -171,6 +171,7 @@ TR_JProfilingValue::perform()
          traceMsg(comp(), "JProfiling cannot add callable trees due to missing codegen support, skip JProfilingValue\n");
       return 0;
       }
+   // TODO: Remove this condition and its corresponding JIT option once benchmarking is done.
    else if (comp()->getOption(TR_EnableSplitPostGRA) && isPostGRA)
       {}
    else if (comp()->getProfilingMode() == JProfiling)
@@ -279,6 +280,7 @@ TR_JProfilingValue::performOnNode(TR::Node *node, TR::TreeTop *tt, TR::NodeCheck
       return;
    checklist->add(node);
 
+   // TODO: Uncomment these once Rahil fixes bugs with profiling of these nodes
    /*if (node->getOpCode().isCall() && !node->getByteCodeInfo().doNotProfile() &&
        (node->getSymbol()->getMethodSymbol()->isVirtual() ||
         node->getSymbol()->getMethodSymbol()->isInterface()))
@@ -300,37 +302,19 @@ TR_JProfilingValue::addProfiling(TR::Node *value, TR::TreeTop *tt)
 
    TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
    TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(value->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-   // addProfilingTrees(comp(), tt, value, info, NULL, true, trace());
+   addProfilingPoint(comp(), tt, value, info, false);
    }
 
+// TODO: Does the addNullCheck parameter need to be removed?
 void
 TR_JProfilingValue::addVFTProfiling(TR::Node *address, TR::TreeTop *tt, bool addNullCheck)
    {
    if (!performTransformation(comp(), "%s Add trees to track the vft lookup of node %p near tree %p, null check %d\n", optDetailString(), address, tt->getNode(), addNullCheck))
       return;
 
-   /*TR::Node *vftNode = TR::Node::createWithSymRef(address, TR::aloadi, 1, address,
-      getSymRefTab()->findOrCreateVftSymbolRef());
-
-   TR::Node *check = NULL;
-   if (addNullCheck)
-      check = TR::Node::createif(TR::ifacmpeq, address, TR::Node::aconst(address, 0));*/
    TR_ValueProfileInfo *valueProfileInfo = comp()->getRecompilationInfo()->findOrCreateProfileInfo()->findOrCreateValueProfileInfo(comp());
    TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-   // addProfilingTrees(comp(), tt, /*vftNode*/address, /*info*/NULL, /*check*/NULL, true, trace(), true);
    addProfilingPoint(comp(), tt, address, info, true);
-
-   /*if (feGetEnv("TR_DisableJProfilingSnippet"))
-      return;
-
-   TR_ValueProfileInfo *valueProfileInfo = TR_PersistentProfileInfo::getCurrent(comp())->findOrCreateValueProfileInfo(comp());
-   TR_AbstractHashTableProfilerInfo *info = static_cast<TR_AbstractHashTableProfilerInfo*>(valueProfileInfo->getOrCreateProfilerInfo(address->getByteCodeInfo(), comp(), AddressInfo, HashTableProfiler));
-
-   TR::TreeTop *profilerCall = tt->insertAfter(TR::TreeTop::create(comp(), TR::Node::createWithSymRef(address, TR::call, 2,
-      getSymRefTab()->findOrCreateRuntimeHelper(TR_jProfileSnippetVFT, false, false, false))));
-
-   profilerCall->getNode()->setAndIncChild(0, address);
-   profilerCall->getNode()->setAndIncChild(1, TR::Node::aconst(address, info->getBaseAddress()));*/
    }
 
 /**
@@ -482,7 +466,8 @@ TR_JProfilingValue::addInlineProfilingTrees(
     TR_AbstractHashTableProfilerInfo *table,
     bool isVftProfile)
    {
-   // TODO: FIX ALL OF THIS!
+   // TODO: Fix the ability to add profiling trees inline. This was broken by a lot of the changes
+   // made to support out-of-line profiling trees.
    /*// Common types used in calculation
    TR::DataType counterType = TR::Int32;
    TR::DataType lockType    = TR::Int16;
@@ -752,7 +737,7 @@ createAutoTemp(TR::Compilation* comp, TR::Node* value, bool isNotCollected)
       comp->getMethodSymbol()->incTempIndex(comp->fe()));
    }
 
-// TODO: Support 32-bit
+// TODO: Support 32-bit OOL profiling trees and 32-bit systems.
 // IMPORTANT: DO NOT MERGE UNDER ANY CIRCUMSTANCES UNTIL ALL HACKS ARE REMOVED, OTHERWISE YOU WILL
 //            UNLEASH CTHULU AND BRING ABOUT THE END OF THE WORLD AS WE KNOW IT IF ANYTHING IN THE
 //            CODEBASE CHANGES!!!! I CANNOT UNDERSTATE THE IMPORTANCE OF **NOT** MERGING THESE
@@ -771,8 +756,7 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    TR::Block *nullTestBlock = TR::Block::createEmptyBlock(comp, MAX_COLD_BLOCK_COUNT + 1);
    nullTestBlock->setIsCold();
    nullTestBlock->setIsGotoCallTarget();
-   lastBlock->getExit()->setNextTreeTop(nullTestBlock->getEntry());
-   nullTestBlock->getEntry()->setPrevTreeTop(lastBlock->getExit());
+   lastBlock->getExit()->join(nullTestBlock->getEntry());
    cfg->addNode(nullTestBlock);
 
    // Next, split that block into the necessary blocks to actually perform the value profiling
@@ -794,7 +778,8 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    cfg->addEdge(quickIncBlock, returnBlock);
    cfg->removeEdge(quickIncBlock, helperCallBlock);
 
-   // Set up the initial register dependencies
+   // Set up the initial register dependencies. We want to save *all* registers available to GRA, as
+   // they might have been used to uncommon values across profiling points.
    TR::Node *regDeps = nullTestBlock->getEntryGlRegDeps();
 
    for (TR_GlobalRegisterNumber gpr = comp->cg()->getFirstGlobalGPR() + 2; gpr <= comp->cg()->getLastGlobalGPR(); gpr++)
@@ -827,6 +812,9 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
          }
       }
 
+   // Add two extra register dependencies for the table address and value, which will be loaded by
+   // mainline code. It's important that these two dependencies appear at the *end* of the GlRegDeps
+   // since we'll be retrieving their corresponding values from duplicated GlRegDeps nodes later.
    TR::Node *tableLoad = TR::Node::create(orig, comp->il.opCodeForRegisterLoad(TR::DataTypes::Address));
    tableLoad->setGlobalRegisterNumber(cg()->getFirstGlobalGPR() + 1);
    tableLoad->setRegLoadStoreSymbolReference(createAutoTemp(comp, tableLoad, true));
@@ -839,7 +827,8 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    regDeps->addChild(valLoad);
 
    {
-   // Generate nullTestBlock
+   // Generate nullTestBlock to check if the passed value is null. If it is, then the value should
+   // not be profiled, as doing so would involve loading the VFT of null, which is not a good idea.
    TR::Node *newRegDeps = regDeps->createExitGlRegDeps();
    newRegDeps->getChild(newRegDeps->getNumChildren() - 1)->decReferenceCount();
    newRegDeps->getChild(newRegDeps->getNumChildren() - 2)->decReferenceCount();
@@ -854,7 +843,8 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    nullTestTT->getNode()->addChild(newRegDeps);
    nullTestBlock->append(nullTestTT);
 
-   // Generate vftLoadBlock
+   // Generate vftLoadBlock to actually perform the load of the VFT from the provided value. This is
+   // the value which will actually be profiled.
    TR::Node *vftLoad = TR::Node::createWithSymRef(orig, TR::aloadi, 1, valLoad,
       getSymRefTab()->findOrCreateVftSymbolRef());
    TR::TreeTop *vftLoadTT = TR::TreeTop::create(comp, TR::Node::create(orig, TR::aRegStore, 1, vftLoad));
@@ -878,7 +868,10 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    valLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 1);
    tableLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 2);
 
-   // Generate quickTestBlock
+   // Generate quickTestBlock to compute the hash index of the value to be profiled. If the table
+   // contains the given key at that index, then we will use that slot. Otherwise, if the table is
+   // not full, we'll call a helper to add the value to the table (possibly rearranging it). If the
+   // value is not in the table and the table is full, then just increment its other counter.
    TR::Node *otherIndexOff = TR::Node::lconst(orig, TR_EmbeddedHashTable<uint64_t, 2>::getStaticLockOffset() /* HACK!! */);
    TR::Node *keysOff = TR::Node::lconst(orig, TR_EmbeddedHashTable<uint64_t, 2>::getStaticKeysOffset() /* HACK!! */);
 
@@ -905,7 +898,8 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    quickTestTT->getNode()->addChild(newRegDeps->createExitGlRegDeps());
    quickTestBlock->append(quickTestTT);
 
-   // Generate quickIncBlock
+   // Generate quickIncBlock, which increments the frequency counter for the given slot in the
+   // table.
    TR::Node *freqOff = TR::Node::lconst(orig, TR_EmbeddedHashTable<uint64_t, 2>::getStaticFreqOffset() /* HACK!! */);
    TR::SymbolReference *freqShadow = getSymRefTab()->findOrCreateArrayShadowSymbolRef(TR::Int32);
 
@@ -938,7 +932,7 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    valLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 1);
    tableLoad = newRegDeps->getChild(newRegDeps->getNumChildren() - 2);
 
-   // Generate helperCallBlock
+   // Generate helperCallBlock to perform a helper call to add a new value to the table.
    TR::Node *value = TR::Node::create(orig, TR::a2l, 1, valLoad);
    TR::TreeTop *helperCallTT = TR::TreeTop::create(comp, createHelperCall(comp, value, tableLoad));
    helperCallBlock->append(helperCallTT);
@@ -953,7 +947,8 @@ TR_JProfilingValue::addOutOfLineProfilingTrees(TR::Compilation *comp, TR::Node *
    }
 
    {
-   // Generate returnBlock
+   // Generate returnBlock to perform the special mainline return to the block after the call to the
+   // profiling trees.
    returnBlock->setEntryGlRegDeps(regDeps);
 
    TR::TreeTop *returnTT = TR::TreeTop::create(comp,
@@ -981,6 +976,8 @@ TR_JProfilingValue::addProfilingPoint(
       {
       TR::CFG *cfg = comp->getFlowGraph();
 
+      // Generate out-of-line profiling trees if they don't already exist, since we'll be calling
+      // into them.
       if (!outOfLineVftProfileStart)
          addOutOfLineProfilingTrees(comp, value);
 
@@ -988,10 +985,15 @@ TR_JProfilingValue::addProfilingPoint(
 
       TR_ASSERT_FATAL(!value->requiresRegisterPair(comp), "Register pairs not yet handled");
 
+      // Split the block right before the treetop which is going to be profiled. No uncommoning is
+      // needed since the next block will be marked as an extension of the current block.
       TR::Block *prevBlock = insertionPoint->getEnclosingBlock();
       TR::Block *profilingBlock = prevBlock->split(insertionPoint, cfg);
       profilingBlock->setIsExtensionOfPreviousBlock();
 
+      // Store both the value to profile and the table address into two pre-arranged registers.
+      // Since the profiling trees are deduplicated, all profiling points *must* use the same
+      // registers for storing these values.
       TR::Node *valStore = TR::Node::create(value, comp->il.opCodeForRegisterStore(value->getDataType()), 1, value);
       valStore->setGlobalRegisterNumber(comp->cg()->getFirstGlobalGPR());
 
@@ -1002,8 +1004,13 @@ TR_JProfilingValue::addProfilingPoint(
       profilingBlock->prepend(TR::TreeTop::create(comp, valStore));
       profilingBlock->prepend(TR::TreeTop::create(comp, tableStore));
 
-      TR::Block *nextBlock = profilingBlock->splitPostGRA(profilingBlock->getEntry()->getNextTreeTop()->getNextTreeTop()->getNextTreeTop(), cfg, 2);
+      // Split the block again. This time, we do have to uncommon values and use GlRegDeps to pass
+      // values between the two blocks, since we will be calling into the profiling trees and they
+      // will only save registers which are visible to GRA.
+      TR::Block *nextBlock = profilingBlock->splitPostGRA(
+         profilingBlock->getEntry()->getNextTreeTop()->getNextTreeTop()->getNextTreeTop(), cfg, 2);
 
+      // Add the register stores from above to the GlRegDeps at the end of profilingBlock.
       TR::Node *valPassThrough = TR::Node::create(TR::PassThrough, 1, value);
       valPassThrough->setGlobalRegisterNumber(comp->cg()->getFirstGlobalGPR());
 
@@ -1013,15 +1020,22 @@ TR_JProfilingValue::addProfilingPoint(
       profilingBlock->getExitGlRegDeps()->addChild(valPassThrough);
       profilingBlock->getExitGlRegDeps()->addChild(tablePassThrough);
 
+      // Create the call into the profiling trees with GlRegDeps copied from what was previously
+      // under profilingBlock's BBEnd.
       TR::Node *gotoProfiling = TR::Node::create(TR::Goto, 1, profilingBlock->getExitGlRegDeps());
       gotoProfiling->setBranchDestination(outOfLineProfileStart->getEntry());
       gotoProfiling->setIsGotoCall();
 
+      profilingBlock->append(TR::TreeTop::create(comp, gotoProfiling));
+
+      // Remove the GlRegDeps from profilingBlock's BBEnd, since the fallthrough edge of this block
+      // cannot actually be taken.
       profilingBlock->getExitGlRegDeps()->decReferenceCount();
       profilingBlock->getExit()->getNode()->setNumChildren(0);
 
-      profilingBlock->append(TR::TreeTop::create(comp, gotoProfiling));
+      // TODO: Add a patchable guard to prevBlock to skip profiling when disabled
 
+      // Rearrange the CFG to represent the new control flow that we just added.
       cfg->addEdge(profilingBlock, outOfLineProfileStart);
       cfg->addEdge(outOfLineProfileEnd, nextBlock);
       cfg->removeEdge(profilingBlock, nextBlock);
@@ -1335,6 +1349,11 @@ TR_JProfilingValue::computeHash(
    return hash;
    }
 
+/*
+ * This function hackily generates trees for performing a bit index hash on a table which is a
+ * TR_EmbeddedHashTable<uint64_t, 2>. It makes many assumptions about how the table is set up, so it
+ * should be replaced when possible.
+ */
 TR::Node *
 TR_JProfilingValue::computeHackyHash(TR::Compilation *comp, TR::Node *value, TR::Node *baseAddr)
    {
@@ -1343,7 +1362,7 @@ TR_JProfilingValue::computeHackyHash(TR::Compilation *comp, TR::Node *value, TR:
 
    TR::Node *hash = NULL;
    // Build the bit permute tree
-   TR::Node *hashAddr = TR::Node::create(value, addSys, 2, baseAddr, TR::Node::create(value, constSys, 0, TR_EmbeddedHashTable<uint64_t, 2>::getStaticHashOffset()));
+   TR::Node *hashAddr = TR::Node::create(value, addSys, 2, baseAddr, TR::Node::create(value, constSys, 0, TR_EmbeddedHashTable<uint64_t, 2>::getStaticHashOffset() /* HACK!! */));
    hash = TR::Node::create(value, value->getDataType() == TR::Int32 ? TR::ibitpermute : TR::lbitpermute, 3);
    hash->setAndIncChild(0, value);
    hash->setAndIncChild(1, hashAddr);
