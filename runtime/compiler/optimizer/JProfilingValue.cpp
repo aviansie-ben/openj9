@@ -165,7 +165,16 @@ loadConst(TR::DataType dt)
 int32_t
 TR_JProfilingValue::perform() 
    {
-   if (isPostGRA && !comp()->cg()->getSupportsGotoCall())
+   if (!comp()->getRecompilationInfo())
+      {
+      if (trace())
+         traceMsg(comp(), "Method has no RecompilationInfo, skip JProfilingValue\n");
+      if (!isPostGRA)
+         TR::DebugCounter::incStaticDebugCounter(comp(),
+            TR::DebugCounter::debugCounterName(comp(), "jprofiling.noRecompilation"));
+      return 0;
+      }
+   else if (isPostGRA && !comp()->cg()->getSupportsGotoCall())
       {
       if (trace())
          traceMsg(comp(), "JProfiling cannot add callable trees due to missing codegen support, skip JProfilingValue\n");
