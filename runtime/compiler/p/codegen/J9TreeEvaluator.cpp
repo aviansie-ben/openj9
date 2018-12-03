@@ -2478,7 +2478,9 @@ TR::Register *J9::Power::TreeEvaluator::BNDCHKwithSpineCHKEvaluator(TR::Node *no
 
    // Label back to main-line that the OOL code will branch to when done.
    TR::LabelSymbol *doneLabel = generateLabelSymbol(cg);
-   doneLabel->setEndInternalControlFlow();
+   // TODO: Look into whether this actually needs to be marked as internal control flow and fix
+   // register dependencies if needed.
+   // doneLabel->setEndInternalControlFlow();
 
    TR_PPCOutOfLineCodeSection *discontiguousArrayOOL = new (cg->trHeapMemory()) TR_PPCOutOfLineCodeSection(discontiguousArrayLabel, doneLabel, cg);
    cg->getPPCOutOfLineCodeSectionList().push_front(discontiguousArrayOOL);
@@ -5447,7 +5449,11 @@ TR::Register *J9::Power::TreeEvaluator::VMmonexitEvaluator(TR::Node *node, TR::C
    addDependency(conditions, condReg, TR::RealRegister::cr0, TR_CCR, cg);
 
    if (lookupOffsetReg)
+      {
       addDependency(conditions, lookupOffsetReg, TR::RealRegister::NoReg, TR_GPR, cg);
+      conditions->getPreConditions()->getRegisterDependency(conditions->getAddCursorForPre() - 1)->setExcludeGPR0();
+      conditions->getPostConditions()->getRegisterDependency(conditions->getAddCursorForPost() - 1)->setExcludeGPR0();
+      }
 
    if (!ppcSupportsReadMonitors || !node->isReadMonitor())
       {
@@ -8105,7 +8111,11 @@ TR::Register *J9::Power::TreeEvaluator::VMmonentEvaluator(TR::Node *node, TR::Co
       }
 
    if (lookupOffsetReg)
+      {
       addDependency(conditions, lookupOffsetReg, TR::RealRegister::NoReg, TR_GPR, cg);
+      conditions->getPreConditions()->getRegisterDependency(conditions->getAddCursorForPre() - 1)->setExcludeGPR0();
+      conditions->getPostConditions()->getRegisterDependency(conditions->getAddCursorForPost() - 1)->setExcludeGPR0();
+      }
 
    addDependency(conditions, condReg, TR::RealRegister::cr0, TR_CCR, cg);
 
@@ -8300,7 +8310,7 @@ TR::Register *J9::Power::TreeEvaluator::VMarrayCheckEvaluator(TR::Node *node, TR
    {
    TR_J9VMBase *fej9 = (TR_J9VMBase *) (cg->fe());
    TR::Register *obj1Reg, *obj2Reg, *tmp1Reg, *tmp2Reg, *cndReg;
-   TR::LabelSymbol *doneLabel, *snippetLabel;
+   TR::LabelSymbol *doneLabel, *snippetLabel, *startLabel;
    TR::Instruction *gcPoint;
    TR::Snippet *snippet;
    TR::RegisterDependencyConditions *conditions;
@@ -8309,7 +8319,10 @@ TR::Register *J9::Power::TreeEvaluator::VMarrayCheckEvaluator(TR::Node *node, TR
 
    obj1Reg = cg->evaluate(node->getFirstChild());
    obj2Reg = cg->evaluate(node->getSecondChild());
+   startLabel = generateLabelSymbol(cg);
+   startLabel->setStartInternalControlFlow();
    doneLabel = generateLabelSymbol(cg);
+   doneLabel->setEndInternalControlFlow();
    conditions = createConditionsAndPopulateVSXDeps(cg, 5);
    depIndex = 0;
    nonFixedDependency(conditions, obj1Reg, &depIndex, TR_GPR, true, cg);
@@ -8325,6 +8338,7 @@ TR::Register *J9::Power::TreeEvaluator::VMarrayCheckEvaluator(TR::Node *node, TR
 
    // Same array, we are done.
    //
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, startLabel);
    generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, node, cndReg, obj1Reg, obj2Reg);
    generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, node, doneLabel, cndReg);
 
@@ -11340,9 +11354,13 @@ static TR::Register *inlineIsAssignableFrom(TR::Node *node, TR::CodeGenerator *c
    TR::Register                *resultReg = cg->allocateRegister();
    TR::LabelSymbol                *outlinedCallLabel = generateLabelSymbol(cg);
    TR::LabelSymbol                *returnTrueLabel = generateLabelSymbol(cg);
+   TR::LabelSymbol                *startLabel = generateLabelSymbol(cg);
    TR::LabelSymbol                *doneLabel = generateLabelSymbol(cg);
 
+   startLabel->setStartInternalControlFlow();
    doneLabel->setEndInternalControlFlow();
+
+   generateLabelInstruction(cg, TR::InstOpCode::label, node, startLabel);
 
    // We don't want this guy to be live across the call to isAssignableFrom in the outlined section
    // because the CR reg will have to be spilled/restored.
@@ -11405,12 +11423,13 @@ static TR::Register *inlineIsAssignableFrom(TR::Node *node, TR::CodeGenerator *c
    generateLabelInstruction(cg, TR::InstOpCode::label, node, returnTrueLabel);
    generateTrg1ImmInstruction(cg, TR::InstOpCode::li, node, resultReg, 1);
 
-   TR::RegisterDependencyConditions *deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 2 + srm->numAvailableRegisters(), cg->trMemory());
+   TR::RegisterDependencyConditions *deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 3 + srm->numAvailableRegisters(), cg->trMemory());
    deps->addPostCondition(receiverReg, TR::RealRegister::NoReg, UsesDependentRegister | ExcludeGPR0InAssigner);
    deps->addPostCondition(parmReg, TR::RealRegister::NoReg, UsesDependentRegister | ExcludeGPR0InAssigner);
+   deps->addPostCondition(condReg, TR::RealRegister::NoReg);
    srm->addScratchRegistersToDependencyList(deps);
    // Make sure these two (added to the deps by the srm) have !gr0, since we use them as base regs
-   deps->setPostDependencyExcludeGPR0(receiverJ9ClassReg);
+   deps->setPostDependencyExcludeGPR0(parmJ9ClassReg);
    if (scratch1Reg)
       deps->setPostDependencyExcludeGPR0(scratch1Reg);
    generateDepLabelInstruction(cg, TR::InstOpCode::label, node, doneLabel, deps);
