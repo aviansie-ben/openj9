@@ -7444,7 +7444,7 @@ TR::CompilationInfoPerThreadBase::wrappedCompile(J9PortLibrary *portLib, void * 
 
             if (jitConfig->javaVM->phase != J9VM_PHASE_NOT_STARTUP || options->getOptLevel() < warm)
                {
-               options->setOption(TR_UseSymbolValidationManager, false);
+               // options->setOption(TR_UseSymbolValidationManager, false);
                }
 
 
