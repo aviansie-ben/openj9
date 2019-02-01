@@ -440,6 +440,12 @@ TR_RelocationRecord::create(TR_RelocationRecord *storage, TR_RelocationRuntime *
       case TR_MethodCallAddress:
          reloRecord = new (storage) TR_RelocationRecordMethodCallAddress(reloRuntime, record);
          break;
+      case TR_DiscontiguousSymbolFromManager:
+         reloRecord = new (storage) TR_RelocationRecordDiscontiguousSymbolFromManager(reloRuntime, record);
+         break;
+      case TR_ResolvedTrampolines:
+         reloRecord = new (storage) TR_RelocationRecordResolvedTrampolines(reloRuntime, record);
+         break;
       default:
          // TODO: error condition
          printf("Unexpected relo record: %d\n", reloType);fflush(stdout);
@@ -3887,6 +3893,7 @@ TR_RelocationRecordSymbolFromManager::preparePrivateData(TR_RelocationRuntime *r
    {
    TR_RelocationSymbolFromManagerPrivateData *reloPrivateData = &(privateData()->symbolFromManager);
 
+   uint16_t type = reloTarget->loadUnsigned8b(&_record->_type);
    uint16_t symbolID = reloTarget->loadUnsigned16b((uint8_t *) &((TR_RelocationRecordSymbolFromManagerBinaryTemplate *)_record)->_symbolID);
    uint16_t symbolType = reloTarget->loadUnsigned16b((uint8_t *) &((TR_RelocationRecordSymbolFromManagerBinaryTemplate *)_record)->_symbolType);
 
@@ -3911,12 +3918,12 @@ TR_RelocationRecordSymbolFromManager::applyRelocation(TR_RelocationRuntime *relo
    if (reloRuntime->reloLogger()->logEnabled())
       {
       reloRuntime->reloLogger()->printf("%s\n", name());
-      reloRuntime->reloLogger()->printf("\tpreparePrivateData: symbol %p\n", symbol);
+      reloRuntime->reloLogger()->printf("\tapplyRelocation: symbol %p\n", symbol);
       }
 
    if (symbol)
       {
-      reloTarget->storeAddressSequence((uint8_t *)symbol, reloLocation, reloFlags(reloTarget));
+      storePointer(reloRuntime, reloTarget, reloLocation);
       activatePointer(reloRuntime, reloTarget, reloLocation);
       }
    else
@@ -3962,6 +3969,22 @@ TR_RelocationRecordSymbolFromManager::needsRedefinitionAssumption(TR_RelocationR
    }
 
 void
+TR_RelocationRecordSymbolFromManager::storePointer(TR_RelocationRuntime *reloRuntime, TR_RelocationTarget *reloTarget, uint8_t *reloLocation)
+   {
+   TR_RelocationSymbolFromManagerPrivateData *reloPrivateData = &(privateData()->symbolFromManager);
+
+   reloTarget->storePointer((uint8_t *)reloPrivateData->_symbol, reloLocation);
+   }
+
+void
+TR_RelocationRecordDiscontiguousSymbolFromManager::storePointer(TR_RelocationRuntime *reloRuntime, TR_RelocationTarget *reloTarget, uint8_t *reloLocation)
+   {
+   TR_RelocationSymbolFromManagerPrivateData *reloPrivateData = &(privateData()->symbolFromManager);
+
+   reloTarget->storeAddressSequence((uint8_t *)reloPrivateData->_symbol, reloLocation, reloFlags(reloTarget));
+   }
+
+void
 TR_RelocationRecordSymbolFromManager::activatePointer(TR_RelocationRuntime *reloRuntime, TR_RelocationTarget *reloTarget, uint8_t *reloLocation)
    {
    TR_RelocationSymbolFromManagerPrivateData *reloPrivateData = &(privateData()->symbolFromManager);
@@ -3988,6 +4011,43 @@ TR_RelocationRecordSymbolFromManager::activatePointer(TR_RelocationRuntime *relo
       createClassRedefinitionPicSite((void *)reloPrivateData->_symbol, (void *) reloLocation, sizeof(uintptrj_t), false, reloRuntime->comp()->getMetadataAssumptionList());
       reloRuntime->comp()->setHasClassRedefinitionAssumptions();
       }
+   }
+
+void
+TR_RelocationRecordResolvedTrampolines::preparePrivateData(TR_RelocationRuntime *reloRuntime, TR_RelocationTarget *reloTarget)
+   {
+   TR_RelocationRecordResolvedTrampolinesPrivateData *reloPrivateData = &(privateData()->resolvedTrampolines);
+
+   uint16_t symbolID = reloTarget->loadUnsigned16b((uint8_t *) &((TR_RelocationRecordResolvedTrampolinesBinaryTemplate *)_record)->_symbolID);
+
+   if (reloRuntime->reloLogger()->logEnabled())
+      {
+      reloRuntime->reloLogger()->printf("%s\n", name());
+      reloRuntime->reloLogger()->printf("\tpreparePrivateData: symbolID %d\n", symbolID);
+      }
+
+   reloPrivateData->_method = (TR_OpaqueMethodBlock *)reloRuntime->comp()->getSymbolValidationManager()->getSymbolFromID(symbolID, TR::SymbolType::typeMethod);
+   }
+
+int32_t
+TR_RelocationRecordResolvedTrampolines::applyRelocation(TR_RelocationRuntime *reloRuntime, TR_RelocationTarget *reloTarget, uint8_t *reloLocation)
+   {
+   TR_RelocationRecordResolvedTrampolinesPrivateData *reloPrivateData = &(privateData()->resolvedTrampolines);
+   TR_OpaqueMethodBlock *method = reloPrivateData->_method;
+
+   if (reloRuntime->reloLogger()->logEnabled())
+      {
+      reloRuntime->reloLogger()->printf("%s\n", name());
+      reloRuntime->reloLogger()->printf("\tapplyRelocation: method %p\n", method);
+      }
+
+   if (reloRuntime->codeCache()->reserveResolvedTrampoline(method, true) != OMR::CodeCacheErrorCode::ERRORCODE_SUCCESS)
+      {
+      RELO_LOG(reloRuntime->reloLogger(), 6, "\t\tapplyRelocation: aborting AOT relocation because trampoline was not reserved. Will be retried.\n");
+      return compilationAotTrampolineReloFailure;
+      }
+
+   return 0;
    }
 
 
