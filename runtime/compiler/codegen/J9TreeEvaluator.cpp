@@ -176,6 +176,12 @@ uint32_t getInstanceOfOrCheckCastTopProfiledClass(TR::CodeGenerator *cg, TR::Nod
          continue;
          }
 
+      // For AOT compiles with a SymbolValidationManager, skip any classes which cannot be verified.
+      //
+      if (comp->compileRelocatableCode() && comp->getOption(TR_UseSymbolValidationManager))
+         if (!comp->getSymbolValidationManager()->addProfiledClassRecord(tempProfiledClass))
+            continue;
+
       float frequency = profiledInfo->_frequency / totalFrequency;
       if ( frequency >= TR::Options::getMinProfiledCheckcastFrequency() )
          {
@@ -325,8 +331,8 @@ uint32_t J9::TreeEvaluator::calculateInstanceOfOrCheckCastSequences(TR::Node *in
          //
          if (profiledClassList)
             {
-            *numberOfProfiledClass = getInstanceOfOrCheckCastTopProfiledClass(cg, instanceOfOrCheckCastNode, castClass, profiledClassList, topClassWasCastClass, maxProfiledClass, topClassProbability);
-            numProfiledClasses = *numberOfProfiledClass;
+            numProfiledClasses = getInstanceOfOrCheckCastTopProfiledClass(cg, instanceOfOrCheckCastNode, castClass, profiledClassList, topClassWasCastClass, maxProfiledClass, topClassProbability);
+            *numberOfProfiledClass = numProfiledClasses;
             if (cg->comp()->getOption(TR_TraceCG))
                {
                for (int i=0; i<numProfiledClasses; i++)
@@ -351,6 +357,9 @@ uint32_t J9::TreeEvaluator::calculateInstanceOfOrCheckCastSequences(TR::Node *in
             if (!isInstanceOf)
                {
                singleImplementerClass = cg->comp()->getPersistentInfo()->getPersistentCHTable()->findSingleConcreteSubClass(castClass, cg->comp());
+               if (singleImplementerClass && cg->comp()->compileRelocatableCode() && cg->comp()->getOption(TR_UseSymbolValidationManager))
+                  if (!cg->comp()->getSymbolValidationManager()->addProfiledClassRecord(singleImplementerClass))
+                     singleImplementerClass = NULL;
                if (cg->comp()->getOption(TR_TraceCG))
                   {
                   if (singleImplementerClass)
@@ -361,6 +370,7 @@ uint32_t J9::TreeEvaluator::calculateInstanceOfOrCheckCastSequences(TR::Node *in
                      }
                   }
                }
+
             *compileTimeGuessClass = singleImplementerClass;
             }
 
