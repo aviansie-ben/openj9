@@ -43,7 +43,7 @@ class PPCCallSnippet : public TR::Snippet
    bool needsGCMap(TR::CodeGenerator *cg, TR::SymbolReference *methodSymRef)
       {
       TR_J9VMBase *fej9 = (TR_J9VMBase *)(cg->fe());
-      if (OMR_UNLIKELY(cg->comp()->compileRelocatableCode()))
+      if (OMR_UNLIKELY(cg->comp()->compileRelocatableCode() && !cg->comp()->getOption(TR_UseSymbolValidationManager)))
          return false;
       TR::MethodSymbol *methodSymbol = methodSymRef->getSymbol()->castToMethodSymbol();
       return !methodSymRef->isUnresolved() &&
