@@ -1355,7 +1355,7 @@ TR_ResolvedRelocatableJ9Method::TR_ResolvedRelocatableJ9Method(TR_OpaqueMethodBl
    {
    TR_J9VMBase *fej9 = (TR_J9VMBase *)fe;
    TR::Compilation *comp = TR::comp();
-   if (comp && this->TR_ResolvedMethod::getRecognizedMethod() != TR::unknownMethod)
+   if (comp)
       {
       if (fej9->sharedCache()->rememberClass(containingClass()))
          {
@@ -1372,11 +1372,10 @@ TR_ResolvedRelocatableJ9Method::TR_ResolvedRelocatableJ9Method(TR_OpaqueMethodBl
          }
       else
          {
+         comp->failCompilation<J9::AOTSymbolValidationManagerFailure>("Failed to validate in TR_ResolvedRelocatableJ9Method");
          setRecognizedMethod(TR::unknownMethod);
          }
       }
-
-
    }
 
 int32_t
@@ -8008,7 +8007,7 @@ TR_J9ByteCodeIlGenerator::runFEMacro(TR::SymbolReference *symRef)
          // Construct the signature string for the array class
          //
          UDATA arity = arrayJ9Class->arity;
-         J9Class *leafClass = arrayJ9Class->leafComponentType;
+         J9Class *leafClass = (J9Class*)fej9->getLeafComponentClassFromArrayClass((TR_OpaqueClassBlock*)arrayJ9Class);
          int32_t leafClassNameLength;
          char *leafClassNameChars = fej9->getClassNameChars((TR_OpaqueClassBlock*)leafClass, leafClassNameLength); // eww, TR_FrontEnd downcast
 
