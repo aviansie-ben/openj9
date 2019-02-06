@@ -7087,6 +7087,8 @@ TR::CompilationInfoPerThreadBase::wrappedCompile(J9PortLibrary *portLib, void * 
                (that->_methodBeingCompiled->_useAotCompilation || that->_methodBeingCompiled->_aotCodeToBeRelocated),
                that->getCompThreadId());
 
+         options->setOption(TR_EnableSymbolValidationManager);
+
          // Determine if known annotations exist and if so, keep annotations enabled
          if (!that->_methodBeingCompiled->_aotCodeToBeRelocated && !vm->isAOT_DEPRECATED_DO_NOT_USE() && options->getOption(TR_EnableAnnotations)) // KEN
             {

@@ -1367,7 +1367,7 @@ bool
 TR::SymbolValidationManager::assertionsAreFatal()
    {
    // Look for the env var even in debug builds so that it's always acknowledged.
-   static const bool fatal = feGetEnv("TR_svmAssertionsAreFatal") != NULL;
+   static const bool fatal = true; // feGetEnv("TR_svmAssertionsAreFatal") != NULL;
 
 #if defined(DEBUG) || defined(PROD_WITH_ASSUMES) || defined(SVM_ASSERTIONS_ARE_FATAL)
    return true;
