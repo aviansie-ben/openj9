@@ -2812,7 +2812,7 @@ TR_RelocationRecordProfiledInlinedMethod::preparePrivateData(TR_RelocationRuntim
       if (inlinedMethod)
          fixInlinedSiteInfo(reloRuntime, reloTarget, inlinedMethod);
       else if (reloRuntime->comp()->getOption(TR_UseSymbolValidationManager))
-         SVM_ASSERT(inlinedMethod != NULL, "inlinedMethod should not be NULL when using the SVM!");
+         SVM_ASSERT_NONFATAL(inlinedMethod != NULL, "inlinedMethod should not be NULL when using the SVM!");
 
       failValidation = !inlinedSiteIsValid;
       }
