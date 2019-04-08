@@ -11426,7 +11426,7 @@ static TR::Register *inlineIsAssignableFrom(TR::Node *node, TR::CodeGenerator *c
    TR::RegisterDependencyConditions *deps = new (cg->trHeapMemory()) TR::RegisterDependencyConditions(0, 3 + srm->numAvailableRegisters(), cg->trMemory());
    deps->addPostCondition(receiverReg, TR::RealRegister::NoReg, UsesDependentRegister | ExcludeGPR0InAssigner);
    deps->addPostCondition(parmReg, TR::RealRegister::NoReg, UsesDependentRegister | ExcludeGPR0InAssigner);
-   deps->addPostCondition(condReg, TR::RealRegister::NoReg);
+   // deps->addPostCondition(condReg, TR::RealRegister::NoReg);
    srm->addScratchRegistersToDependencyList(deps);
    // Make sure these two (added to the deps by the srm) have !gr0, since we use them as base regs
    deps->setPostDependencyExcludeGPR0(parmJ9ClassReg);
