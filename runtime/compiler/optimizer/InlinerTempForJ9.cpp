@@ -4188,6 +4188,8 @@ TR_MultipleCallTargetInliner::exceedsSizeThreshold(TR_CallSite *callSite, int by
    // 1. the compiling method is scorching
    // 2. the callee is scorching OR queued for veryhot/scorching compile
    int32_t outterMethodSize = getJ9InitialBytecodeSize(callSite->_callerResolvedMethod, 0, comp());
+
+   debugTrace(tracer(), "bytecodeSize: %d, outterMethodSize: %d, isInterpretedForHeuristics: %s\n", bytecodeSize, outterMethodSize, calleeResolvedMethod->isInterpretedForHeuristics() ? "true" : "false");
    if (comp()->getMethodHotness() > warm && callSite->isInterface()
        && bytecodeSize > polymorphicCalleeSizeThreshold
        && outterMethodSize > polymorphicRootSizeThreshold
@@ -4202,6 +4204,10 @@ TR_MultipleCallTargetInliner::exceedsSizeThreshold(TR_CallSite *callSite, int by
          void *startPC = (void *)calleeResolvedMethod->startAddressForInterpreterOfJittedMethod();
          bodyInfo = TR::Recompilation::getJittedBodyInfoFromPC(startPC);
          }
+
+      if (bodyInfo)
+         debugTrace(tracer(), "bodyInfo hotness: %s\n", comp()->getHotnessName(bodyInfo->getHotness()));
+
       if (((!bodyInfo && !calleeResolvedMethod->isInterpretedForHeuristics() && !calleeResolvedMethod->isJITInternalNative()) //jitted method without bodyInfo must be scorching
          || (bodyInfo && bodyInfo->getHotness() == scorching)
          || comp()->fej9()->isQueuedForVeryHotOrScorching(calleeResolvedMethod, comp()))
