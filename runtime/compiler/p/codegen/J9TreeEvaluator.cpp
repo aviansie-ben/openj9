@@ -13611,7 +13611,7 @@ TR::Register *J9::Power::TreeEvaluator::arraycopyEvaluator(TR::Node *node, TR::C
    if (node->isForwardArrayCopy() && lengthNode->getOpCode().isLoadConst())
       {
       len = (lengthNode->getType().isInt32() ? lengthNode->getInt() : lengthNode->getLongInt());
-      if (len >= 0)
+      if (len >= 0 && len < 0x100000000ll)
          {
          /*
           * This path generates code to perform a runtime check on whether concurrent GC is done moving objects or not.
