@@ -10446,13 +10446,10 @@ static TR::Register *inlineShortReverseBytes(TR::Node *node, TR::CodeGenerator *
    else
       {
       TR::Register *srcRegister = cg->evaluate(firstChild);
-      TR::Register *tmpRegister = cg->allocateRegister();
 
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister, srcRegister, 24, 0x00000000ff);
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmpRegister, srcRegister, 8, 0x000000ff00);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister, tgtRegister, tmpRegister);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister, srcRegister, 24, 0x000000ff);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister, srcRegister,  8, 0x0000ff00);
 
-      cg->stopUsingRegister(tmpRegister);
       cg->decReferenceCount(firstChild);
       }
 
@@ -10494,38 +10491,19 @@ static TR::Register *inlineLongReverseBytes(TR::Node *node, TR::CodeGenerator *c
          }
       else
          {
-         TR::Register *srcLRegister = cg->evaluate(firstChild);
-         TR::Register *srcHRegister = cg->allocateRegister();
-         TR::Register *tgtHRegister = cg->allocateRegister();
-         TR::Register *tmp1Register = cg->allocateRegister();
-         TR::Register *tmp2Register = cg->allocateRegister();
+         TR::Register *srcRegister = cg->evaluate(firstChild);
+         TR::Register *tmpRegister = cg->allocateRegister();
 
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldicl, node, srcHRegister, srcLRegister, 32, 0x00ffffffff);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldicl, node, tmpRegister, srcRegister, 32, 0x00000000ffffffffull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister, tmpRegister,  8, 0x00000000ffffffffull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister, tmpRegister, 24, 0x000000000000ff00ull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister, tmpRegister, 24, 0x00000000ff000000ull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmpRegister, srcRegister,  8, 0x00000000ffffffffull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tmpRegister, srcRegister, 24, 0x000000000000ff00ull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tmpRegister, srcRegister, 24, 0x00000000ff000000ull);
+         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldimi, node, tgtRegister, tmpRegister, 32, 0xffffffff00000000ull);
 
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister, srcHRegister, 8, 0x00000000ff);
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtHRegister, srcLRegister, 8, 0x00000000ff);
-
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp1Register, srcHRegister, 8, 0x0000ff0000);
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp2Register, srcLRegister, 8, 0x0000ff0000);
-         generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister, tgtRegister, tmp1Register);
-         generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtHRegister, tgtHRegister, tmp2Register);
-
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp1Register, srcHRegister, 24, 0x000000ff00);
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp2Register, srcLRegister, 24, 0x000000ff00);
-         generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister, tgtRegister, tmp1Register);
-         generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtHRegister, tgtHRegister, tmp2Register);
-
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp1Register, srcHRegister, 24, CONSTANT64(0x00ff000000));
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp2Register, srcLRegister, 24, CONSTANT64(0x00ff000000));
-         generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister, tgtRegister, tmp1Register);
-         generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtHRegister, tgtHRegister, tmp2Register);
-
-         generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rldimi, node, tgtRegister, tgtHRegister, 32, CONSTANT64(0xffffffff00000000));
-
-         cg->stopUsingRegister(tmp2Register);
-         cg->stopUsingRegister(tmp1Register);
-         cg->stopUsingRegister(tgtHRegister);
-         cg->stopUsingRegister(srcHRegister);
+         cg->stopUsingRegister(tmpRegister);
          cg->decReferenceCount(firstChild);
          }
 
@@ -10538,28 +10516,13 @@ static TR::Register *inlineLongReverseBytes(TR::Node *node, TR::CodeGenerator *c
       TR::RegisterPair *tgtRegister = cg->allocateRegisterPair(cg->allocateRegister(), cg->allocateRegister());
       TR::Register *srcRegister = cg->evaluate(firstChild);
 
-      TR::Register *tmp1Register = cg->allocateRegister();
-      TR::Register *tmp2Register = cg->allocateRegister();
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister->getLowOrder(),  srcRegister->getHighOrder(),  8, 0xffffffff);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister->getLowOrder(),  srcRegister->getHighOrder(), 24, 0x0000ff00);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister->getLowOrder(),  srcRegister->getHighOrder(), 24, 0xff000000);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister->getHighOrder(), srcRegister->getLowOrder(),   8, 0xffffffff);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister->getHighOrder(), srcRegister->getLowOrder(),  24, 0x0000ff00);
+      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwimi, node, tgtRegister->getHighOrder(), srcRegister->getLowOrder(),  24, 0xff000000);
 
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister->getLowOrder(), srcRegister->getHighOrder(), 8, 0x00000000ff);
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tgtRegister->getHighOrder(), srcRegister->getLowOrder(), 8, 0x00000000ff);
-
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp1Register, srcRegister->getHighOrder(), 8, 0x0000ff0000);
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp2Register, srcRegister->getLowOrder(), 8, 0x0000ff0000);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister->getLowOrder(), tgtRegister->getLowOrder(), tmp1Register);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister->getHighOrder(), tgtRegister->getHighOrder(), tmp2Register);
-
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp1Register, srcRegister->getHighOrder(), 24, 0x000000ff00);
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp2Register, srcRegister->getLowOrder(), 24, 0x000000ff00);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister->getLowOrder(), tgtRegister->getLowOrder(), tmp1Register);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister->getHighOrder(), tgtRegister->getHighOrder(), tmp2Register);
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp1Register, srcRegister->getHighOrder(), 24, 0x00ff000000);
-      generateTrg1Src1Imm2Instruction(cg, TR::InstOpCode::rlwinm, node, tmp2Register, srcRegister->getLowOrder(), 24, 0x00ff000000);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister->getLowOrder(), tgtRegister->getLowOrder(), tmp1Register);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::OR, node, tgtRegister->getHighOrder(), tgtRegister->getHighOrder(), tmp2Register);
-
-      cg->stopUsingRegister(tmp2Register);
-      cg->stopUsingRegister(tmp1Register);
       cg->decReferenceCount(firstChild);
 
       node->setRegister(tgtRegister);
