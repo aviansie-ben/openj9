@@ -261,21 +261,6 @@ static bool isInterfaceCallSite(uint8_t *callSite, int32_t& distanceToActualCall
    uint8_t *branchToIPIC = actualCallSite - (PPC_INSTRUCTION_LENGTH*3);
    int32_t  distanceToIPIC;
 
-#ifdef INLINE_LASTITABLE_CHECK
-   // First check if this is a b
-   if ((*(int32_t*)branchToIPIC & 0xfc000000) == 0x48000000)
-      {
-      distanceToIPIC = (*(int32_t*)branchToIPIC & 0x03FFFFFC) << 6 >> 6; //Mask to get [LI,AA,LK], LSH by 6 to sign extend, then RSH by 6 to get 8 byte distance.
-      // And then check if it branches to a mtctr r11
-      if (distanceToIPIC == (PPC_INSTRUCTION_LENGTH*2) &&
-          *(int32_t*)(branchToIPIC + distanceToIPIC) == 0x7d6903a6)
-         {
-         // If so, this looks like a lastITable call, look back earlier for the branch to the snippet
-         branchToIPIC -= 4*PPC_INSTRUCTION_LENGTH;
-         }
-      }
-#endif /* INLINE_LASTITABLE_CHECK */
-
    // Now check for bne or b jumping to interface call snippet
    if ((*(int32_t*)branchToIPIC & 0xffff0000) == 0x40820000)
       {
@@ -381,14 +366,6 @@ bool ppcCodePatching(void *method, void *callSite, void *currentPC, void *curren
          oldBits = *(int32_t *)((uint8_t *)callSite - 12);
          if ((oldBits & 0xFC000000) == 0x48000000)      // Check if this is a b (instead of a bne)
             {
-#ifdef INLINE_LASTITABLE_CHECK
-            int32_t branchOffset = (oldBits & 0x03FFFFFC) << 6 >> 6;
-
-            if (branchOffset == PPC_INSTRUCTION_LENGTH*2)
-               // This is a b to the mtctr because this is a call using the lastITable, add # of extra instructions generated for it
-               encodingStartOffset += 10 * PPC_INSTRUCTION_LENGTH;
-            else
-#endif /* INLINE_LASTITABLE_CHECK */
                // This is a b to the snippet because it was too far to reach using a bne, add 1 instruction to the distance
                encodingStartOffset += 4;
             }

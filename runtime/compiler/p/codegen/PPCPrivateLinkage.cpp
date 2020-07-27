@@ -2137,62 +2137,10 @@ static void buildInterfaceCall(TR::CodeGenerator *cg, TR::Node *callNode, TR::Re
 
    generateTrg1MemInstruction(cg,TR::InstOpCode::Op_loadu, callNode, gr11, new (cg->trHeapMemory()) TR::MemoryReference(gr12, 2 * TR::Compiler->om.sizeofReferenceAddress(), TR::Compiler->om.sizeofReferenceAddress(), cg));
    generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, callNode, cr0, vftReg, gr11);
+   generateConditionalBranchInstruction(cg, TR::InstOpCode::bne, callNode, snippetLabel, cr0);
 
-#ifdef INLINE_LASTITABLE_CHECK
-   // Doing this check inline doesn't perform too well because it prevents the PIC cache slots from being populated with the best candidates.
-   // This check is done in the _interfaceSlotsUnavailable helper instead.
-   TR::LabelSymbol       *callLabel = TR::LabelSymbol::create(cg->trHeapMemory(),cg);
-   TR_SymbolReference  *methodSymRef = callNode->getSymbolReference();
-   TR_ResolvedMethod   *owningMethod = methodSymRef->getOwningMethod(comp);
-   TR_OpaqueClassBlock *interfaceClassOfMethod;
-   uintptr_t           itableIndex;
-
-   interfaceClassOfMethod = owningMethod->getResolvedInterfaceMethod(methodSymRef->getCPIndex(), &itableIndex);
-
-   TR_ASSERT(fej9->getITableEntryJitVTableOffset() <= UPPER_IMMED &&
-             fej9->getITableEntryJitVTableOffset() >= LOWER_IMMED, "ITable offset for JIT is too large, prevents lastITable dispatch from being generated");
-
-   if (!comp->getOption(TR_DisableLastITableCache) && interfaceClassOfMethod &&
-       // Only do this if this offset can be loaded in a single instruction because this code may need to be
-       // patched at runtime and we don't want to deal with too many variations
-       fej9->getITableEntryJitVTableOffset() <= UPPER_IMMED &&
-       fej9->getITableEntryJitVTableOffset() >= LOWER_IMMED)
-      {
-      generateConditionalBranchInstruction(cg, TR::InstOpCode::beq, callNode, hitLabel, cr0);
-
-      // Check if the lastITable belongs to the interface class we're using at this call site
-      //
-      generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, callNode, gr11,
-                                 new (cg->trHeapMemory()) TR::MemoryReference(vftReg, fej9->getOffsetOfLastITableFromClassField(), TR::Compiler->om.sizeofReferenceAddress(), cg));
-      // Load the interface class from the snippet rather than materializing it, again because we want to do this in a single instruction
-      generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, callNode, gr12,
-                                 new (cg->trHeapMemory()) TR::MemoryReference(gr12, -4 * TR::Compiler->om.sizeofReferenceAddress(), TR::Compiler->om.sizeofReferenceAddress(), cg));
-      generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, callNode, gr0,
-                                 new (cg->trHeapMemory()) TR::MemoryReference(gr11, fej9->getOffsetOfInterfaceClassFromITableField(), TR::Compiler->om.sizeofReferenceAddress(), cg));
-      generateTrg1Src2Instruction(cg,TR::InstOpCode::Op_cmpl, callNode, cr0, gr0, gr12);
-      generateConditionalBranchInstruction(cg, TR::InstOpCode::bne, callNode, snippetLabel, cr0);
-
-      // lastITable belongs to the interface class we're using at this call site
-      // Use it to look up the VFT offset and use that to make a virtual call
-      //
-      generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, callNode, gr12,
-                                 new (cg->trHeapMemory()) TR::MemoryReference(gr11, fej9->convertITableIndexToOffset(itableIndex), TR::Compiler->om.sizeofReferenceAddress(), cg));
-      loadConstant(cg, callNode, fej9->getITableEntryJitVTableOffset(), gr11);
-      generateTrg1Src2Instruction(cg, TR::InstOpCode::subf, callNode, gr12, gr12, gr11);
-      generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, callNode, gr11,
-                                 new (cg->trHeapMemory()) TR::MemoryReference(vftReg, gr12, TR::Compiler->om.sizeofReferenceAddress(), cg));
-      generateLabelInstruction(cg, TR::InstOpCode::b, callNode, callLabel);
-      }
-   else
-#endif /* INLINE_LASTITABLE_CHECK */
-      {
-      generateConditionalBranchInstruction(cg, TR::InstOpCode::bne, callNode, snippetLabel, cr0);
-      }
    generateLabelInstruction(cg, TR::InstOpCode::label, callNode, hitLabel);
    generateTrg1MemInstruction(cg,TR::InstOpCode::Op_load, callNode, gr11, new (cg->trHeapMemory()) TR::MemoryReference(gr12, TR::Compiler->om.sizeofReferenceAddress(), TR::Compiler->om.sizeofReferenceAddress(), cg));
-#ifdef INLINE_LASTITABLE_CHECK
-   generateLabelInstruction(cg, TR::InstOpCode::label, callNode, callLabel);
-#endif /* INLINE_LASTITABLE_CHECK */
    generateSrc1Instruction(cg, TR::InstOpCode::mtctr, callNode, gr11);
    TR::Instruction *gcPoint = generateInstruction(cg, TR::InstOpCode::bctrl, callNode);
    gcPoint->PPCNeedsGCMap(regMapForGC);
