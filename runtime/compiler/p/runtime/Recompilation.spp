@@ -368,7 +368,7 @@ _samplingPatchCallSite:
 	addi	J9SP, J9SP, 4*ALen
 	b	startproc._samplingRecompileMethod
 
-L.commonPatchPoint:						! Stack shape, r9(mthdInfo), r10(oldPC), r11(LR)
+L.commonPatchPoint:						! Stack shape, r9(mthdInfo), r10(oldPC), r11(LR), r12(extra)
 	laddr	r9, J9TR_MethodInfo_J9Method(r9)
 	staddru	r9, -8*ALen(J9SP)
 	laddr	r9, J9TR_MethodPCStartOffset(r9)		! New startPC
@@ -382,7 +382,7 @@ L.commonPatchPoint:						! Stack shape, r9(mthdInfo), r10(oldPC), r11(LR)
 	cmpli	cr0, 0, r8, 0x0052				! == means bl instruction
 	staddr	r3, ALen(J9SP)
 	staddr	r9, 2*ALen(J9SP)
-	staddr	r16, 4*ALen(J9SP)
+	staddr	r12, 4*ALen(J9SP)
 	addi	r3, J9SP, 4*ALen
 	staddr	r3, 3*ALen(J9SP)
 #if defined(AIXPPC)

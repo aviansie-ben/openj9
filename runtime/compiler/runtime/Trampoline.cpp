@@ -284,6 +284,7 @@ static bool isInterfaceCallSite(uint8_t *callSite, int32_t& distanceToActualCall
 
 bool ppcCodePatching(void *method, void *callSite, void *currentPC, void *currentTramp, void *newPC, void *extra)
    {
+#ifdef TR_HOST_POWER
    J9::PrivateLinkage::LinkageInfo *linkInfo = J9::PrivateLinkage::LinkageInfo::get(newPC);
    uint8_t        *entryAddress = (uint8_t *)newPC + linkInfo->getReservedWord();
    intptr_t       distance;
@@ -325,9 +326,7 @@ bool ppcCodePatching(void *method, void *callSite, void *currentPC, void *curren
                   {
                   oldBits |= ((uint8_t *)currentTramp - patchAddr) & 0x03fffffc;
                   *(int32_t *)patchAddr = oldBits;
-#if defined(TR_HOST_POWER)
                   ppcCodeSync(patchAddr, 4);
-#endif
                   }
 
                patchAddr = (uint8_t *)currentTramp;
@@ -343,9 +342,7 @@ bool ppcCodePatching(void *method, void *callSite, void *currentPC, void *curren
       oldBits |= distance & 0x03fffffc;
       *(int32_t *)patchAddr = oldBits;
 
-#if defined(TR_HOST_POWER)
       ppcCodeSync(patchAddr, 4);
-#endif
       }
    else if (oldBits==0x4e800421 || isLinkStackPreservingIPIC)      // It is a bctrl or an IPIC bl
       {
@@ -360,43 +357,7 @@ bool ppcCodePatching(void *method, void *callSite, void *currentPC, void *curren
       oldBits = *(int32_t *)((uint8_t *)callSite - 4);
       if (oldBits == 0x7d6903a6)      // mtctr r11 used in interface dispatch
          {
-         // This is the distance from the call site back to the first instruction of the IPIC sequence
-         int32_t encodingStartOffset = OFFSET_IPIC_TO_CALL;
-
-         oldBits = *(int32_t *)((uint8_t *)callSite - 12);
-         if ((oldBits & 0xFC000000) == 0x48000000)      // Check if this is a b (instead of a bne)
-            {
-               // This is a b to the snippet because it was too far to reach using a bne, add 1 instruction to the distance
-               encodingStartOffset += 4;
-            }
-
-         oldBits = *(int32_t *)((uint8_t *)callSite - encodingStartOffset);     // The load of the first IPIC cache slot or rldimi
-#if defined(TR_TARGET_64BIT)
-         if (((oldBits>>26) & 0x0000003F) != 30)
-            {
-            // PTOC was used, oldBits is ld
-            currentDistance = oldBits<<16>>16;
-            if (((oldBits>>16) & 0x0000001F) == 12)
-               {
-               oldBits = *(int32_t *)((uint8_t *)callSite - encodingStartOffset - 4);
-               currentDistance += oldBits<<16;
-               }
-            patchAddr = *(uint8_t **)(*(intptr_t *)extra + currentDistance);
-            }
-         else
-            {
-            // PTOC was full and the load address is formed via 5 instructions: lis, lis, ori, rldimi, ldu; oldBits is the rldimi
-            distance  = ((intptr_t)(*(int32_t *)((uint8_t *)callSite - encodingStartOffset - 12)) & 0x0000FFFF) << 48;
-            distance |= ((intptr_t)(*(int32_t *)((uint8_t *)callSite - encodingStartOffset - 8)) & 0x0000FFFF) << 16;
-            distance |= ((intptr_t)(*(int32_t *)((uint8_t *)callSite - encodingStartOffset - 4)) & 0x0000FFFF) << 32;
-            distance += ((intptr_t)(*(int32_t *)((uint8_t *)callSite - encodingStartOffset + 4)) & 0x0000FFFC) << 48 >> 48;
-            patchAddr = (uint8_t *)distance;
-            }
-#else
-         // oldBits is lwzu
-         currentDistance = *(int32_t *)((uint8_t *)callSite - encodingStartOffset - 4);
-         patchAddr = (uint8_t *)((currentDistance<<16) + (oldBits<<16>>16));
-#endif
+         patchAddr = *(uint8_t**)extra;
          // patchAddr now points to the class ptr of the first cache slot
 
          const intptr_t *obj = *(intptr_t **)((intptr_t)extra + sizeof(intptr_t));
@@ -432,6 +393,9 @@ bool ppcCodePatching(void *method, void *callSite, void *currentPC, void *curren
       }
 
    return true;
+#else
+   TR_ASSERT_FATAL(false, "Should not call ppcCodePatching on this platform");
+#endif
    }
 
 void ppcCodeCacheParameters(int32_t *trampolineSize, void **callBacks, int32_t *numHelpers, int32_t* CCPreLoadedCodeSize)
