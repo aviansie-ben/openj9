@@ -156,40 +156,26 @@ class PPCVirtualUnresolvedSnippet : public TR::PPCVirtualSnippet
 
 class PPCInterfaceCallSnippet : public TR::PPCVirtualSnippet
    {
-   TR::Instruction *_upperInstruction, *_lowerInstruction;
-   int32_t            _tocOffset;
+   TR::LabelSymbol *_dataLabel;
    uint8_t *thunkAddress;
 
    public:
 
    PPCInterfaceCallSnippet(TR::CodeGenerator *cg, TR::Node *c, TR::LabelSymbol *lab, int32_t s, TR::LabelSymbol *retl)
       : TR::PPCVirtualSnippet(cg, c, lab, s, retl, true),
-        _upperInstruction(NULL), _lowerInstruction(NULL), _tocOffset(0), thunkAddress(NULL)
+        thunkAddress(NULL), _dataLabel(generateLabelSymbol(cg))
       {
       }
 
    PPCInterfaceCallSnippet(TR::CodeGenerator *cg, TR::Node *c, TR::LabelSymbol *lab, int32_t s, TR::LabelSymbol *retl, uint8_t *thunkPtr)
       : TR::PPCVirtualSnippet(cg, c, lab, s, retl, true),
-        _upperInstruction(NULL), _lowerInstruction(NULL), _tocOffset(0), thunkAddress(thunkPtr)
+        thunkAddress(thunkPtr), _dataLabel(generateLabelSymbol(cg))
       {
       }
 
    virtual Kind getKind() { return IsInterfaceCall; }
 
-   TR::Instruction *getUpperInstruction() {return _upperInstruction;}
-   TR::Instruction *setUpperInstruction(TR::Instruction *pi)
-      {
-      return (_upperInstruction = pi);
-      }
-
-   TR::Instruction *getLowerInstruction() {return _lowerInstruction;}
-   TR::Instruction *setLowerInstruction(TR::Instruction *pi)
-      {
-      return (_lowerInstruction = pi);
-      }
-
-   int32_t getTOCOffset() {return _tocOffset;}
-   void setTOCOffset(int32_t v) {_tocOffset = v;}
+   TR::LabelSymbol *getDataLabel() { return _dataLabel; }
 
    virtual uint8_t *emitSnippetBody();
 

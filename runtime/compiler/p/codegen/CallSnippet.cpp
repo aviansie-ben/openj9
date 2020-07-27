@@ -709,73 +709,7 @@ uint8_t *TR::PPCInterfaceCallSnippet::emitSnippetBody()
    ((uintptr_t *)cursor)[1] = 0;
    cursor += 2*TR::Compiler->om.sizeofReferenceAddress();
 
-   if (comp->target().is64Bit())
-      {
-      if (getTOCOffset() != PTOC_FULL_INDEX)
-         {
-         TR_PPCTableOfConstants::setTOCSlot(getTOCOffset(), (uintptr_t)cursor);
-         }
-      else
-         {
-         int32_t  *patchAddr = (int32_t *)getLowerInstruction()->getBinaryEncoding();
-         intptr_t addrValue = (intptr_t)cursor;
-         if (!comp->compileRelocatableCode()
-            #ifdef J9VM_OPT_JITSERVER
-               && !comp->isOutOfProcessCompilation()
-            #endif
-            )
-            {
-            // If the high nibble is 0 and the next nibble's high bit is clear, change the first instruction to a nop and the third to a li
-            // Next nibble's high bit needs to be clear in order to use li (because li will sign extend the immediate)
-            if ((addrValue >> 48) == 0 && ((addrValue >> 32) & 0x8000) == 0)
-               {
-               *patchAddr |= addrValue & 0x0000ffff;
-               addrValue = cg()->hiValue(addrValue);
-               uint32_t ori = *(patchAddr-2);
-               uint32_t li = TR::InstOpCode::getOpCodeBinaryEncoding(TR::InstOpCode::li) | (ori & 0x03e00000);
-               *(patchAddr-2) = li | ((addrValue>>16) & 0x0000ffff);
-               *(patchAddr-3) |= addrValue & 0x0000ffff;
-               *(patchAddr-4) = TR::InstOpCode::getOpCodeBinaryEncoding(TR::InstOpCode::nop);
-               }
-            else
-               {
-               *patchAddr |= addrValue & 0x0000ffff;
-               addrValue = cg()->hiValue(addrValue);
-               *(patchAddr-2) |= (addrValue>>16) & 0x0000ffff;
-               *(patchAddr-3) |= addrValue & 0x0000ffff;
-               *(patchAddr-4) |= (addrValue>>32) & 0x0000ffff;
-               }
-            }
-         else
-            {
-            // We must take this path for all compiles that need to generate relocatable code (ex. AOT, outOfProcess).
-            // The immediate fields of relocatable instructions must be clear. This is because when performing the relocation,
-            // we OR the new address into the fields. So if the fields are not already clear, then OR'ing the new address can
-            // result in garbage data.
-            cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::BeforeBinaryEncodingExternalRelocation(getUpperInstruction(),
-               (uint8_t *)(addrValue),
-               (uint8_t *)fixedSequence4,
-               TR_FixedSequenceAddress2,
-               cg()),
-               __FILE__, __LINE__, callNode);
-            }
-         }
-      }
-   else
-      {
-      // Patch up the main line codes
-      int32_t *patchAddress1 = (int32_t *)getUpperInstruction()->getBinaryEncoding();
-      *patchAddress1 |= cg()->hiValue((int32_t)(intptr_t)cursor) & 0x0000ffff;
-      int32_t *patchAddress2 = (int32_t *)getLowerInstruction()->getBinaryEncoding();
-      *patchAddress2 |= (int32_t)(intptr_t)cursor & 0x0000ffff;
-      TR_RelocationRecordInformation *recordInfo = ( TR_RelocationRecordInformation *)comp->trMemory()->allocateMemory(sizeof( TR_RelocationRecordInformation), heapAlloc);
-      recordInfo->data3 = orderedPairSequence1;
-      cg()->addExternalRelocation(new (cg()->trHeapMemory()) TR::ExternalOrderedPair32BitRelocation((uint8_t *)patchAddress1,
-         (uint8_t *)patchAddress2,
-         (uint8_t *)recordInfo,
-         TR_AbsoluteMethodAddressOrderedPair, cg()),
-         __FILE__, __LINE__, callNode);
-      }
+   _dataLabel->setCodeLocation(cursor);
 
    // Initialize for: two class ptrs, two target addrs
    // Initialize target addrs with the address of the bl. see 134322
