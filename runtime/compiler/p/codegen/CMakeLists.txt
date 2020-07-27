@@ -30,8 +30,6 @@ j9jit_files(
 	p/codegen/J9CodeGenerator.cpp
 	p/codegen/J9PPCInstruction.cpp
 	p/codegen/J9PPCSnippet.cpp
-	p/codegen/J9PPCWatchedInstanceFieldSnippet.cpp
-	p/codegen/J9PPCWatchedStaticFieldSnippet.cpp
 	p/codegen/J9TreeEvaluator.cpp
 	p/codegen/J9UnresolvedDataSnippet.cpp
 	p/codegen/PPCJNILinkage.cpp
